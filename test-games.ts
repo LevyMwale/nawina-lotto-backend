@@ -1,0 +1,116 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+import { Model } from 'objection';
+import Knex from 'knex';
+import { knexConfig } from './src/config/database';
+import { AuthService } from './src/services/auth.service';
+import { SpinWheelService } from './src/services/games/spin-wheel.service';
+import { DiceRollService } from './src/services/games/dice-roll.service';
+import { LottoService } from './src/services/games/lotto.service';
+import { WalletService } from './src/services/wallet.service';
+
+const knex = Knex(knexConfig);
+Model.knex(knex);
+
+async function testAllGames() {
+  console.log('🎮 Testing NaWiNa Lotto Games\n');
+
+  const authService = new AuthService();
+  const walletService = new WalletService();
+  const spinService = new SpinWheelService();
+  const diceService = new DiceRollService();
+  const lottoService = new LottoService();
+
+  try {
+    // 1. Create test user
+    console.log('1️⃣ Creating test user...');
+    const { user, token } = await authService.register(
+      '+260977999999',
+      '1234',
+      'Test User'
+    );
+    console.log(`✅ User created: ${user.phone}\n`);
+
+    // 2. Add test balance
+    console.log('2️⃣ Adding test balance...');
+    await walletService.credit(user.id, 1000, 'deposit', { source: 'test' });
+    const balance = await walletService.getBalance(user.id);
+    console.log(`✅ Balance: K${balance.balance}\n`);
+
+    // 3. Test Spin the Wheel
+    console.log('3️⃣ Testing Spin the Wheel...');
+    const spinResult = await spinService.play(user.id, 10);
+    console.log(`   Outcome: ${spinResult.label}`);
+    console.log(`   Stake: K${spinResult.stake}`);
+    console.log(`   Payout: K${spinResult.payout}`);
+    console.log(`   Balance: K${spinResult.balance}\n`);
+
+    // 4. Test Dice Roll - Exact
+    console.log('4️⃣ Testing Dice Roll (Exact)...');
+    const diceResult1 = await diceService.play(user.id, 10, {
+      type: 'exact',
+      prediction: 4,
+    });
+    console.log(`   Roll: ${diceResult1.roll}`);
+    console.log(`   Won: ${diceResult1.won ? 'YES' : 'NO'}`);
+    console.log(`   Payout: K${diceResult1.payout}\n`);
+
+    // 5. Test Dice Roll - Even/Odd
+    console.log('5️⃣ Testing Dice Roll (Even/Odd)...');
+    const diceResult2 = await diceService.play(user.id, 10, {
+      type: 'even_odd',
+      prediction: 'even',
+    });
+    console.log(`   Roll: ${diceResult2.roll}`);
+    console.log(`   Won: ${diceResult2.won ? 'YES' : 'NO'}`);
+    console.log(`   Payout: K${diceResult2.payout}\n`);
+
+    // 6. Test Dice Roll - High/Low
+    console.log('6️⃣ Testing Dice Roll (High/Low)...');
+    const diceResult3 = await diceService.play(user.id, 10, {
+      type: 'high_low',
+      prediction: 'high',
+    });
+    console.log(`   Roll: ${diceResult3.roll}`);
+    console.log(`   Won: ${diceResult3.won ? 'YES' : 'NO'}`);
+    console.log(`   Payout: K${diceResult3.payout}\n`);
+
+    // 7. Test Lotto Pick 3
+    console.log('7️⃣ Testing Lotto Pick 3...');
+    const lottoResult1 = await lottoService.play(user.id, {
+      variant: 'pick3',
+      numbers: [3, 7, 9],
+    });
+    console.log(`   Your numbers: ${lottoResult1.user_numbers.join(', ')}`);
+    console.log(`   Winning numbers: ${lottoResult1.winning_numbers.join(', ')}`);
+    console.log(`   Matches: ${lottoResult1.matches}`);
+    console.log(`   Payout: K${lottoResult1.payout}\n`);
+
+    // 8. Test Lotto Pick 5
+    console.log('8️⃣ Testing Lotto Pick 5...');
+    const lottoResult2 = await lottoService.play(user.id, {
+      variant: 'pick5',
+      numbers: [5, 12, 23, 34, 45],
+    });
+    console.log(`   Your numbers: ${lottoResult2.user_numbers.join(', ')}`);
+    console.log(`   Winning numbers: ${lottoResult2.winning_numbers.join(', ')}`);
+    console.log(`   Matches: ${lottoResult2.matches}`);
+    console.log(`   Payout: K${lottoResult2.payout}\n`);
+
+    // 9. Check final balance
+    console.log('9️⃣ Final balance...');
+    const finalBalance = await walletService.getBalance(user.id);
+    console.log(`   Balance: K${finalBalance.balance}`);
+    console.log(`   Available: K${finalBalance.available}\n`);
+
+    console.log('✅ All tests completed successfully!');
+
+  } catch (error) {
+    console.error('❌ Test failed:', error);
+  } finally {
+    await knex.destroy();
+  }
+}
+
+testAllGames();

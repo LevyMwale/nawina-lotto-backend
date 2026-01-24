@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: nawina-lotto-api
+    env: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_HOST
+        value: aws-1-eu-central-1.pooler.supabase.com
+      - key: DB_PORT
+        value: 6543
+      - key: DB_NAME
+        value: postgres
+      - key: DB_USER
+        value: postgres.yzqiaxuihswaamfioyco
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+  ```
+  
+  ## Step 4: Create/Update .gitignore
+  ```
+  node_modules/
+  dist/
+  .env
+  .env.production
+  .env.local
+  *.log
+  .DS_Store
+  .idea/
+  test-connection.js
+  check-tables.js
+  run-migration.js
+  run-migration.js
+  verify-env.ts
+  test-games.ts
+  test-games.ts.backup
+  fix-wallet-constraint.ts
