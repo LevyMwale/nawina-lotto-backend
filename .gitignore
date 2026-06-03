@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment files (NEVER commit secrets)
+.env
+.env.local
+.env.development
+.env.production
+.env.production.local
+.env.test
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test / debug scripts with hardcoded paths or credentials
+test-connection.js
+check-tables.js
+run-migration.js
+verify-env.ts
+test-games.ts
+test-games.ts.backup
+fix-wallet-constraint.ts
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Misc
+*.tsbuildinfo
+.env.bak

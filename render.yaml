@@ -11,34 +11,14 @@ services:
       - key: NODE_ENV
         value: production
       - key: DB_HOST
-        value: aws-1-eu-central-1.pooler.supabase.com
+        value: db.shwcifknkcbnhbbplsbd.supabase.co
       - key: DB_PORT
-        value: 6543
+        value: '5432'
       - key: DB_NAME
         value: postgres
       - key: DB_USER
-        value: postgres.yzqiaxuihswaamfioyco
+        value: postgres
       - key: DB_PASSWORD
         sync: false
       - key: JWT_SECRET
         sync: false
-  ```
-  
-  ## Step 4: Create/Update .gitignore
-  ```
-  node_modules/
-  dist/
-  .env
-  .env.production
-  .env.local
-  *.log
-  .DS_Store
-  .idea/
-  test-connection.js
-  check-tables.js
-  run-migration.js
-  run-migration.js
-  verify-env.ts
-  test-games.ts
-  test-games.ts.backup
-  fix-wallet-constraint.ts
