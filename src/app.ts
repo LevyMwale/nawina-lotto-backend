@@ -26,10 +26,14 @@ const isDev = process.env.NODE_ENV !== 'production';
 function isOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true; // server-to-server, curl, Capacitor native
   if (isDev && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
-  const allowed = [
+  const allowed: Array<string | RegExp> = [
+    // Capacitor's WebViewLocalServer origins — when `androidScheme: 'https'`
+    // is set in capacitor.config.ts, the WebView loads `https://localhost/`
+    // (port 443 internally). These must be allowed in PRODUCTION, not just
+    // dev, because the packaged APK ships with androidScheme='https'.
+    /^https?:\/\/localhost(:\d+)?$/,
     'capacitor://localhost',
     'ionic://localhost',
-    'http://localhost',
     /\.onrender\.com$/,
     /\.vercel\.app$/,
   ];
