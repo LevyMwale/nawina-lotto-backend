@@ -74,14 +74,26 @@ const knexInstance = knex({
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || 'password',
     database: process.env.DB_NAME || 'postgres',
+    // Supabase's pooler drops idle TCP connections after ~5 minutes
+    // (PgBouncer's default `server_idle_timeout`). Without keepAlive, the
+    // next query on a pooled-but-idle connection surfaces as
+    // `AggregateError [ECONNREFUSED]` because pg tries to reuse the dead
+    // socket. `keepAlive: true` makes node-postgres send TCP keepalives
+    // so the connection stays healthy.
+    keepAlive: true,
     ssl: process.env.NODE_ENV === 'production'
       ? { rejectUnauthorized: false }
       : false
   },
+  // Evict pooled connections after 60s of idleness so we never hand
+  // a stale one to a request. Knex will create a fresh connection on
+  // the next checkout.
   pool: {
-    min: 2,
-    max: 10
-  }
+    min: 0,
+    max: 10,
+    idleTimeoutMillis: 60_000,
+    acquireTimeoutMillis: 30_000,
+  },
 });
 
 Model.knex(knexInstance);

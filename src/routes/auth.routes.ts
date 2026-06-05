@@ -15,10 +15,12 @@ router.post('/register', async (req, res) => {
     const result = await authService.register(phone, pin, fullName);
     res.status(201).json(result);
   } catch (error: any) {
+    // Temporary diagnostic — log the full error to the Render log so we
+    // can see what `error.message` actually contains when register fails
+    // with an empty string in the response. Remove once the root cause
+    // is identified.
     // eslint-disable-next-line no-console
-    console.error('💥 /auth/register FULL error:', JSON.stringify(error, Object.getOwnPropertyNames(error || {}), 2));
-    // eslint-disable-next-line no-console
-    console.error('💥 /auth/register summary:', {
+    console.error('💥 /auth/register error:', {
       name: error?.name,
       message: error?.message,
       code: error?.code,
@@ -26,16 +28,7 @@ router.post('/register', async (req, res) => {
       constraint: error?.constraint,
       stack: error?.stack?.split('\n').slice(0, 5).join('\n'),
     });
-    res.status(400).json({
-      error: error?.message || 'Could not create account',
-      _dbg: {
-        name: error?.name,
-        code: error?.code,
-        detail: error?.detail,
-        constraint: error?.constraint,
-        raw: typeof error === 'object' ? JSON.stringify(error) : String(error),
-      },
-    });
+    res.status(400).json({ error: error?.message || 'Could not create account' });
   }
 });
 

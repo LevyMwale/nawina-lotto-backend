@@ -11,13 +11,19 @@ services:
       - key: NODE_ENV
         value: production
       - key: DB_HOST
-        value: db.shwcifknkcbnhbbplsbd.supabase.co
+        # Supabase pooler (Session mode, port 6543). The direct connection
+        # at db.<project>.supabase.co:5432 doesn't accept connections on
+        # the free tier anymore — Supabase deprecated it in favour of the
+        # pooler. Must match the project ID baked into DB_USER.
+        value: aws-0-eu-west-1.pooler.supabase.com
       - key: DB_PORT
-        value: '5432'
+        value: '6543'
       - key: DB_NAME
         value: postgres
       - key: DB_USER
-        value: postgres
+        # Supabase project-scoped user format: postgres.<project-id>.
+        # Project ID is the same as the one in NEXT_PUBLIC_SUPABASE_URL.
+        value: postgres.shwcifknkcbnhbbplsbd
       - key: DB_PASSWORD
         sync: false
       - key: JWT_SECRET
