@@ -1,1 +1,0 @@
-{"version":3,"file":"Wallet.js","sourceRoot":"","sources":["../../src/models/Wallet.ts"],"names":[],"mappings":";;;AAAA,yCAA+C;AAE/C,MAAa,MAAO,SAAQ,iBAAK;;AAAjC,wBAqBC;AApBQ,gBAAS,GAAG,SAAS,CAAC;AAUtB,uBAAgB,GAAG;IACxB,IAAI,EAAE;QACJ,QAAQ,EAAE,iBAAK,CAAC,oBAAoB;QACpC,UAAU,EAAE,MAAM;QAClB,IAAI,EAAE;YACJ,IAAI,EAAE,iBAAiB;YACvB,EAAE,EAAE,UAAU;SACf;KACF;CACF,CAAC"}

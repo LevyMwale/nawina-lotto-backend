@@ -1,1 +1,0 @@
-{"version":3,"file":"20260122085058_add_missing_columns_to_transactions.js","sourceRoot":"","sources":["../../../src/database/migrations/20260122085058_add_missing_columns_to_transactions.ts"],"names":[],"mappings":";;AAGA,gBACC;AAGD,oBACC;AALM,KAAK,UAAU,EAAE,CAAC,IAAU;AACnC,CAAC;AAGM,KAAK,UAAU,IAAI,CAAC,IAAU;AACrC,CAAC"}
