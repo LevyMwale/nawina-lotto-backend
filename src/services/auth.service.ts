@@ -109,7 +109,10 @@ export class AuthService {
   // Verify token
   verifyToken(token: string): { userId: string } {
     try {
-      return jwt.verify(token, JWT_SECRET) as { userId: string };
+      // Pin the algorithm to HS256. Without this, a token forged with
+      // `alg: none` (or RS256 using a public key as the secret) would
+      // pass jwt.verify. `algorithms` is the supported whitelist.
+      return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as { userId: string };
     } catch (error) {
       throw new Error('Invalid or expired token');
     }
