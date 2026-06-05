@@ -10,6 +10,7 @@ export class User extends Model {
   full_name?: string;
   national_id?: string;
   kyc_status!: 'pending' | 'verified' | 'rejected';
+  status?: 'active' | 'suspended' | 'banned';
   date_of_birth?: Date;
   is_active!: boolean;
   created_at!: Date;

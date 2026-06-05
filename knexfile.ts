@@ -14,8 +14,9 @@ export default {
       ssl: { rejectUnauthorized: false }
     },
     pool: {
-      min: 2,
-      max: 10,
+      min: 0,
+      max: 3,
+      acquireTimeoutMillis: 30000,
     },
     migrations: {
       directory: './src/database/migrations',
@@ -37,8 +38,9 @@ export default {
       ssl: { rejectUnauthorized: false }
     },
     pool: {
-      min: 2,
-      max: 10,
+      min: 0,
+      max: 3,
+      acquireTimeoutMillis: 30000,
     },
     migrations: {
       directory: './src/database/migrations',

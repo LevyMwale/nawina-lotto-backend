@@ -5,14 +5,15 @@ export class Transaction extends Model {
 
   id!: string;
   wallet_id!: string;
-  type!: 'deposit' | 'withdrawal' | 'purchase' | 'win' | 'refund' | 'bet';
+  type!: 'deposit' | 'withdrawal' | 'purchase' | 'win' | 'refund' | 'bet' | 'bonus';
   amount!: number;
   balance_before!: number;
   balance_after!: number;
-  status!: 'pending' | 'completed' | 'failed' | 'cancelled';  // Add this
+  status!: 'pending' | 'completed' | 'failed' | 'cancelled';
   reference?: string;
   description?: string;
   metadata?: any;
+  approved_by?: string;
   created_at!: Date;
 
   static relationMappings = {

@@ -3,6 +3,8 @@ import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 import { SpinWheelService } from '../services/games/spin-wheel.service';
 import { DiceRollService } from '../services/games/dice-roll.service';
 import { LottoService } from '../services/games/lotto.service';
+import { AviatorService } from '../services/games/aviator.service';
+import { QuizService } from '../services/games/quiz.service';
 import { GamePlay } from '../models/GamePlay';
 
 const router = Router();
@@ -14,6 +16,8 @@ router.use(authenticate);
 const spinWheelService = new SpinWheelService();
 const diceRollService = new DiceRollService();
 const lottoService = new LottoService();
+const aviatorService = new AviatorService();
+const quizService = new QuizService();
 
 // ============================================
 // SPIN THE WHEEL
@@ -71,6 +75,95 @@ router.post('/lotto/play', async (req: AuthRequest, res) => {
     }
 
     const result = await lottoService.play(req.userId!, { variant, numbers });
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// AVIATOR (TAMANGA)
+// ============================================
+//
+// Round-based flow:
+//   1. POST /aviator/round      → returns the crash point (no wallet change)
+//   2. POST /aviator/settle     → settles a round after cashout or crash
+//
+// The legacy POST /aviator/play is kept for backwards-compat (it does the
+// full play in one call when the client doesn't do real-time cashout).
+// ============================================
+
+router.post('/aviator/round', async (req: AuthRequest, res) => {
+  try {
+    const { stake } = req.body;
+    if (!stake || stake <= 0) {
+      return res.status(400).json({ error: 'Valid stake is required' });
+    }
+    const result = await aviatorService.startRound(req.userId!, Number(stake));
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.post('/aviator/settle', async (req: AuthRequest, res) => {
+  try {
+    const { stake, multiplier, crash_point, round_id } = req.body;
+    if (!stake || stake <= 0) {
+      return res.status(400).json({ error: 'Valid stake is required' });
+    }
+    if (typeof crash_point !== 'number' || crash_point <= 1) {
+      return res.status(400).json({ error: 'Valid crash point is required' });
+    }
+    if (!round_id) {
+      return res.status(400).json({ error: 'round_id is required' });
+    }
+    // multiplier of 0 (or missing) means the player crashed out without cashing out.
+    const cashOut = Number(multiplier) || 0;
+    const result = await aviatorService.settle(
+      req.userId!,
+      Number(stake),
+      cashOut,
+      Number(crash_point),
+      String(round_id),
+    );
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.post('/aviator/play', async (req: AuthRequest, res) => {
+  try {
+    const { stake, multiplier } = req.body;
+
+    if (!stake || stake <= 0) {
+      return res.status(400).json({ error: 'Valid stake is required' });
+    }
+
+    // multiplier is the cash-out multiplier the player claims to have
+    // reached. 0 or missing = crashed out (lost).
+    const cashOut = Number(multiplier) || 0;
+
+    const result = await aviatorService.play(req.userId!, Number(stake), cashOut);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// TRIVIA QUIZ
+// ============================================
+router.post('/quiz/play', async (req: AuthRequest, res) => {
+  try {
+    const { stake } = req.body;
+
+    if (!stake || stake <= 0) {
+      return res.status(400).json({ error: 'Valid stake is required' });
+    }
+
+    const result = await quizService.play(req.userId!, Number(stake));
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });

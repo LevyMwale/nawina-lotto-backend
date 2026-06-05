@@ -62,7 +62,7 @@ export class WalletService {
     });
   }
 
-  async credit(userId: string, amount: number, type: 'win' | 'deposit' | 'refund', metadata?: any) {
+  async credit(userId: string, amount: number, type: 'win' | 'deposit' | 'refund' | 'bonus', metadata?: any) {
     if (amount <= 0) {
       throw new Error('Amount must be positive');
     }
@@ -195,6 +195,122 @@ export class WalletService {
       reference: txn.reference,
       created_at: txn.created_at,
     }));
+  }
+
+  /**
+   * Admin-issued bonus: credits the user's wallet and records a 'bonus' transaction.
+   * Returns the new balance and transaction ID.
+   */
+  async addBonus(
+    userId: string,
+    amount: number,
+    reason: string,
+    adminId: string
+  ) {
+    if (amount <= 0) {
+      throw new Error('Bonus amount must be positive');
+    }
+
+    return await transaction(Wallet.knex(), async (trx) => {
+      const wallet = await Wallet.query(trx)
+        .findOne({ user_id: userId })
+        .forUpdate();
+
+      if (!wallet) {
+        throw new Error('User wallet not found');
+      }
+
+      const newBalance = Number(wallet.balance) + amount;
+
+      await Wallet.query(trx)
+        .patch({ balance: newBalance })
+        .where({ id: wallet.id });
+
+      const txn = await Transaction.query(trx).insert({
+        wallet_id: wallet.id,
+        type: 'bonus',
+        amount,
+        balance_before: Number(wallet.balance),
+        balance_after: newBalance,
+        status: 'completed',
+        reference: `BONUS-${uuidv4()}`,
+        metadata: { reason, issued_by: adminId },
+        approved_by: adminId,
+      });
+
+      return {
+        transaction_id: txn.id,
+        new_balance: newBalance,
+      };
+    });
+  }
+
+  /**
+   * Approve a pending withdrawal: marks the transaction completed.
+   * The funds were already deducted at withdrawal request time, so we just
+   * flip the status.
+   */
+  async approveWithdrawal(transactionId: string, adminId: string) {
+    const txn = await Transaction.query().findById(transactionId);
+    if (!txn) {
+      throw new Error('Transaction not found');
+    }
+    if (txn.type !== 'withdrawal') {
+      throw new Error('Only withdrawal transactions can be approved');
+    }
+    if (txn.status !== 'pending') {
+      throw new Error(`Transaction is already ${txn.status}`);
+    }
+
+    await Transaction.query()
+      .patch({ status: 'completed', approved_by: adminId })
+      .where({ id: transactionId });
+
+    return { transaction_id: transactionId, status: 'completed' };
+  }
+
+  /**
+   * Reject a pending withdrawal: marks cancelled and refunds the amount
+   * back to the wallet.
+   */
+  async rejectWithdrawal(transactionId: string, adminId: string, reason?: string) {
+    return await transaction(Wallet.knex(), async (trx) => {
+      const txn = await Transaction.query(trx).findById(transactionId);
+      if (!txn) {
+        throw new Error('Transaction not found');
+      }
+      if (txn.type !== 'withdrawal') {
+        throw new Error('Only withdrawal transactions can be rejected');
+      }
+      if (txn.status !== 'pending') {
+        throw new Error(`Transaction is already ${txn.status}`);
+      }
+
+      // Refund: credit the wallet
+      const wallet = await Wallet.query(trx)
+        .findOne({ id: txn.wallet_id })
+        .forUpdate();
+
+      if (!wallet) {
+        throw new Error('Wallet not found');
+      }
+
+      const newBalance = Number(wallet.balance) + Math.abs(Number(txn.amount));
+
+      await Wallet.query(trx)
+        .patch({ balance: newBalance })
+        .where({ id: wallet.id });
+
+      await Transaction.query(trx)
+        .patch({
+          status: 'cancelled',
+          approved_by: adminId,
+          metadata: { ...(txn.metadata || {}), rejection_reason: reason },
+        })
+        .where({ id: transactionId });
+
+      return { transaction_id: transactionId, status: 'cancelled', new_balance: newBalance };
+    });
   }
 
   // OPTIONAL: Payment gateway integration helper methods
