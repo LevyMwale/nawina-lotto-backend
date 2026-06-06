@@ -269,15 +269,22 @@ router.get('/transactions', async (req, res) => {
 
     let query = Transaction.query()
       .withGraphJoined('wallet.user')
-      .orderBy('created_at', 'desc')
+      // Qualify every column reference. Once we join wallet.user, the
+      // `status` column exists in BOTH transactions and users, so an
+      // unqualified `where("status", ...)` produces SQL with
+      // "column reference \"status\" is ambiguous" and Postgres rejects
+      // the query. The shorthand `where({ status })` is exactly that
+      // unqualified form, so we drop it and use the column-qualified
+      // `where(col, value)` overload instead.
+      .orderBy('transactions.created_at', 'desc')
       .limit(limit)
       .offset(offset);
 
     if (type && type !== 'all') {
-      query = query.where({ type });
+      query = query.where('transactions.type', type);
     }
     if (status && status !== 'all') {
-      query = query.where({ status });
+      query = query.where('transactions.status', status);
     }
 
     const transactions = await query;
