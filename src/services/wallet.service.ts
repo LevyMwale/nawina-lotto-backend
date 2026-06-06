@@ -2,6 +2,11 @@ import { Wallet } from '../models/Wallet';
 import { Transaction } from '../models/Transaction';
 import { transaction } from 'objection';
 import { v4 as uuidv4 } from 'uuid';
+import { InvoiceService } from './invoice.service';
+
+// Single shared instance — InvoiceService is stateless and we want
+// the same in-flight request to use one allocation path.
+const invoiceService = new InvoiceService();
 
 export class WalletService {
   async getBalance(userId: string) {
@@ -93,9 +98,31 @@ export class WalletService {
         metadata,
       });
 
+      // Auto-invoice every deposit. Generated inside the same
+      // transaction so a deposit and its invoice are atomic — if the
+      // invoice insert fails, the whole deposit rolls back. This is
+      // the same atomicity guarantee as a real payment-gateway call.
+      let invoice: any = null;
+      if (type === 'deposit') {
+        invoice = await invoiceService.generateForDeposit(trx, {
+          userId,
+          transactionId: txn.id,
+          amount,
+        });
+      }
+
       return {
         transaction_id: txn.id,
         new_balance: newBalance,
+        invoice: invoice
+          ? {
+              id: invoice.id,
+              invoice_number: invoice.invoice_number,
+              amount: Number(invoice.amount),
+              excise_duty: Number(invoice.excise_duty),
+              net_amount: Number(invoice.net_amount),
+            }
+          : null,
       };
     });
   }
@@ -120,7 +147,9 @@ export class WalletService {
     //   throw new Error('Payment gateway failed');
     // }
 
-    // Use the existing credit method to add funds
+    // Use the existing credit method to add funds. The credit step
+    // also generates an invoice atomically (same DB transaction) for
+    // completed deposits, so we forward the invoice to the caller.
     const result = await this.credit(userId, depositAmount, 'deposit', {
       payment_method: method,
       mobile_number: details?.mobileNumber,
@@ -132,6 +161,7 @@ export class WalletService {
       success: true,
       balance: result.new_balance,
       transactionId: result.transaction_id,
+      invoice: result.invoice,
     };
   }
 

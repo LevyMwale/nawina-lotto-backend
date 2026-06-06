@@ -87,7 +87,20 @@ router.post('/deposit', async (req: AuthRequest, res) => {
       success: true,
       balance: result.balance,
       transactionId: result.transactionId,
-      message: `Deposit of K${amount} successful!`
+      message: `Deposit of K${amount} successful!`,
+      // The wallet credit now generates an invoice atomically. We
+      // surface it here so the player app can show "View invoice" on
+      // the deposit confirmation and link to the PDF.
+      invoice: result.invoice
+        ? {
+            id: result.invoice.id,
+            invoiceNumber: result.invoice.invoice_number,
+            amount: result.invoice.amount,
+            exciseDuty: result.invoice.excise_duty,
+            netAmount: result.invoice.net_amount,
+            pdfUrl: `/api/invoices/${result.invoice.id}/pdf`,
+          }
+        : null,
     });
   } catch (error: any) {
     console.error('❌ Deposit error:', error);

@@ -6,6 +6,7 @@ import { Model } from 'objection';
 // Import routes
 import authRoutes from './routes/auth.routes';
 import walletRoutes from './routes/wallet.routes';
+import invoiceRoutes from './routes/invoice.routes';
 import gamesRoutes from './routes/games.routes';
 import adminRoutes from './routes/admin.routes';
 import soccerRoutes from './routes/soccer.routes';
@@ -135,6 +136,9 @@ console.log('✅ Admin routes registered at /api/admin');
 app.use('/api/soccer', soccerRoutes);
 console.log('✅ Soccer routes registered at /api/soccer');
 
+app.use('/api/invoices', invoiceRoutes);
+console.log('✅ Invoice routes registered at /api/invoices');
+
 // Debug: Log all registered routes at boot. Uses the same enumerator the
 // 404 handler uses, so the boot log and the 404 payload can never drift
 // apart.
@@ -176,6 +180,7 @@ function listAvailableRoutes(): string[] {
     { prefix: '/api/games', router: unwrap(gamesRoutes) },
     { prefix: '/api/admin', router: unwrap(adminRoutes) },
     { prefix: '/api/soccer', router: unwrap(soccerRoutes) },
+    { prefix: '/api/invoices', router: unwrap(invoiceRoutes) },
   ];
   for (const { prefix, router } of directRouters) {
     const stack = router?.stack || [];

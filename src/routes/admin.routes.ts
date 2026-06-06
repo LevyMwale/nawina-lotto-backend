@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { AdminService } from '../services/admin.service';
+import { TaxService } from '../services/tax.service';
+import { PdfService } from '../services/pdf.service';
 import { WalletService } from '../services/wallet.service';
 import { User } from '../models/User';
 import { Wallet } from '../models/Wallet';
@@ -9,6 +11,8 @@ import { authenticateAdmin, AdminAuthRequest, requireRole } from '../middleware/
 
 const router = Router();
 const adminService = new AdminService();
+const taxService = new TaxService();
+const pdfService = new PdfService();
 const walletService = new WalletService();
 
 console.log('📦 Admin routes file loaded');
@@ -443,6 +447,137 @@ router.get('/games', async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 });
+
+// ============================================
+// ZRA TAX RETURNS + OPERATOR PROFILE
+// ============================================
+// All routes below are super_admin only. Tax work is sensitive
+// (filed returns are financial records) and the operator profile
+// is what gets printed on every PDF — only the most-trusted role
+// should be able to change it.
+
+// GET /api/admin/tax/returns — list all returns, newest first
+router.get('/tax/returns', requireRole('super_admin'), async (_req, res) => {
+  try {
+    const rows = await taxService.listReturns();
+    res.json({ returns: rows.map(serializeReturn) });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/admin/tax/returns — generate a draft for the given period
+router.post('/tax/returns', requireRole('super_admin'), async (req, res) => {
+  try {
+    const { periodStart, periodEnd } = req.body || {};
+    if (!periodStart || !periodEnd) {
+      return res.status(400).json({ error: 'periodStart and periodEnd are required (YYYY-MM-DD)' });
+    }
+    const ret = await taxService.generateReturn(periodStart, periodEnd);
+    res.status(201).json({ return: serializeReturn(ret) });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// GET /api/admin/tax/returns/:id — fetch one
+router.get('/tax/returns/:id', requireRole('super_admin'), async (req, res) => {
+  try {
+    const ret = await taxService.getReturn(str(req.params.id));
+    if (!ret) return res.status(404).json({ error: 'Return not found' });
+    res.json({ return: serializeReturn(ret) });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// GET /api/admin/tax/returns/:id/pdf — download the tax return PDF
+router.get('/tax/returns/:id/pdf', requireRole('super_admin'), async (req, res) => {
+  try {
+    const ret = await taxService.getReturn(str(req.params.id));
+    if (!ret) return res.status(404).json({ error: 'Return not found' });
+    const operator = await taxService.getOperatorProfile();
+    const pdf = await pdfService.renderTaxReturnPdf({ ret, operator });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="ZRA-return-${ret.period_start}-to-${ret.period_end}.pdf"`,
+    );
+    res.send(pdf);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/admin/tax/returns/:id/file — mark as filed (locks the snapshot)
+router.post('/tax/returns/:id/file', requireRole('super_admin'), async (req: AdminAuthRequest, res) => {
+  try {
+    const ret = await taxService.markFiled(str(req.params.id), req.adminId!);
+    res.json({ return: serializeReturn(ret) });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// GET /api/admin/tax/operator-profile — read the company info that goes on PDFs
+router.get('/tax/operator-profile', requireRole('super_admin'), async (_req, res) => {
+  try {
+    const p = await taxService.getOperatorProfile();
+    res.json({ profile: serializeProfile(p) });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// PATCH /api/admin/tax/operator-profile — update the company info
+router.patch('/tax/operator-profile', requireRole('super_admin'), async (req, res) => {
+  try {
+    const allowed = ['company_name', 'tpin', 'address', 'phone'] as const;
+    const patch: any = {};
+    for (const k of allowed) {
+      if (k in (req.body || {})) patch[k === 'company_name' ? 'company_name' : k] = req.body[k];
+    }
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'No recognised fields in body' });
+    }
+    const p = await taxService.updateOperatorProfile(patch);
+    res.json({ profile: serializeProfile(p) });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+function serializeReturn(r: any) {
+  return {
+    id: r.id,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    totalDeposits: Number(r.total_deposits),
+    totalPayouts: Number(r.total_payouts),
+    netRevenue: Number(r.net_revenue),
+    presumptiveTax: Number(r.presumptive_tax),
+    withholdingTax: Number(r.withholding_tax),
+    exciseDuty: Number(r.excise_duty),
+    totalTax: Number(r.total_tax),
+    status: r.status,
+    filedAt: r.filed_at,
+    filedBy: r.filed_by,
+    createdAt: r.created_at,
+    // Only include the player breakdown on the single-return fetch —
+    // list views omit it to keep the payload small.
+    playerBreakdown: 'player_breakdown' in r ? r.player_breakdown : undefined,
+  };
+}
+
+function serializeProfile(p: any) {
+  return {
+    companyName: p.company_name,
+    tpin: p.tpin,
+    address: p.address,
+    phone: p.phone,
+    updatedAt: p.updated_at,
+  };
+}
 
 console.log('✅ Admin routes configured');
 

@@ -18,6 +18,7 @@ export class Transaction extends Model {
   created_at!: Date;
 
   wallet?: Wallet;
+  invoice?: import('./Invoice').Invoice;
 
   static relationMappings = {
     wallet: {
@@ -30,6 +31,14 @@ export class Transaction extends Model {
       join: {
         from: 'transactions.wallet_id',
         to: 'wallets.id',
+      },
+    },
+    invoice: {
+      relation: Model.HasOneRelation,
+      modelClass: () => require('./Invoice').Invoice,
+      join: {
+        from: 'transactions.id',
+        to: 'invoices.transaction_id',
       },
     },
   };
