@@ -268,7 +268,7 @@ router.get('/transactions', async (req, res) => {
     const status = req.query.status ? str(req.query.status) : undefined;
 
     let query = Transaction.query()
-      .withGraphJoined('wallet')
+      .withGraphJoined('wallet.user')
       .orderBy('created_at', 'desc')
       .limit(limit)
       .offset(offset);
@@ -294,7 +294,13 @@ router.get('/transactions', async (req, res) => {
         balance_after: Number(t.balance_after),
         metadata: t.metadata,
         created_at: t.created_at,
-        user: t.wallet
+        user: t.wallet?.user
+          ? {
+              user_id: t.wallet.user.id,
+              phone: t.wallet.user.phone,
+              full_name: t.wallet.user.full_name,
+            }
+          : t.wallet
           ? { user_id: t.wallet.user_id }
           : null,
       })),
