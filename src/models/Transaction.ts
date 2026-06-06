@@ -1,4 +1,5 @@
 import { Model, ModelObject } from 'objection';
+import { Wallet } from './Wallet';
 
 export class Transaction extends Model {
   static tableName = 'transactions';
@@ -16,10 +17,17 @@ export class Transaction extends Model {
   approved_by?: string;
   created_at!: Date;
 
+  wallet?: Wallet;
+
   static relationMappings = {
     wallet: {
       relation: Model.BelongsToOneRelation,
-      modelClass: 'Wallet',
+      // Import the class directly rather than the string 'Wallet' — the
+      // string form depends on Objection's `modelPaths` auto-discovery
+      // and can fail at boot with
+      // "Transaction.relationMappings.wallet: modelClass: could not
+      //  resolve Wallet using modelPaths". Direct import is reliable.
+      modelClass: Wallet,
       join: {
         from: 'transactions.wallet_id',
         to: 'wallets.id',
