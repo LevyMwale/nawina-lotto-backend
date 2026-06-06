@@ -1,4 +1,4 @@
-import app from './app';
+import app, { readyPromise } from './app';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -24,9 +24,16 @@ if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
   process.exit(1);
 }
 
-app.listen(PORT, HOST, () => {
-  // eslint-disable-next-line no-console
-  console.log(`🚀 NaWiNa Lotto API running on http://${HOST}:${PORT}`);
-  // eslint-disable-next-line no-console
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+// Wait for boot-time migrations to finish before opening the port.
+// `migrate.latest()` is idempotent and only runs pending files — see
+// app.ts. Without this gate, an early request can land on a route that
+// needs a new table before the migration has finished (or even
+// started) and surface a "relation does not exist" error to the user.
+readyPromise.then(() => {
+  app.listen(PORT, HOST, () => {
+    // eslint-disable-next-line no-console
+    console.log(`🚀 NaWiNa Lotto API running on http://${HOST}:${PORT}`);
+    // eslint-disable-next-line no-console
+    console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
 });

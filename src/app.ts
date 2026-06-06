@@ -114,8 +114,12 @@ Model.knex(knexInstance);
 // in `knex_migrations`, so a no-op when the DB is current. We catch
 // errors so a bad migration doesn't crash the whole app (it'll still
 // be reported via Render logs).
+//
+// server.ts awaits this promise before calling `app.listen()`, so the
+// schema is guaranteed to be up-to-date by the time the first request
+// can land.
 // ---------------------------------------------------------------------------
-(async () => {
+export const readyPromise: Promise<void> = (async () => {
   try {
     const [batch, ran] = await knexInstance.migrate.latest({
       directory: './src/database/migrations',
