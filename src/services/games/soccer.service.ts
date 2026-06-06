@@ -180,9 +180,13 @@ export async function getUpcomingMatches(): Promise<Match[]> {
   const hit = getCached<Match[]>(key);
   if (hit) return hit;
   const today = new Date();
-  const twoWeeks = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
+  // football-data.org rejects date ranges over 10 days with HTTP 400
+  // ("Specified period must not exceed 10 days"). 10 is also plenty for
+  // an "upcoming" panel — anything further out is not actionable for
+  // a daily-fixtures widget.
+  const tenDays = new Date(today.getTime() + 10 * 24 * 60 * 60 * 1000);
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const matches = await fetchMatches('TIMED', fmt(today), fmt(twoWeeks));
+  const matches = await fetchMatches('TIMED', fmt(today), fmt(tenDays));
   setCached(key, matches);
   return matches;
 }
