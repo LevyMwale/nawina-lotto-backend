@@ -22,12 +22,11 @@ export class Transaction extends Model {
   static relationMappings = {
     wallet: {
       relation: Model.BelongsToOneRelation,
-      // Import the class directly rather than the string 'Wallet' — the
-      // string form depends on Objection's `modelPaths` auto-discovery
-      // and can fail at boot with
-      // "Transaction.relationMappings.wallet: modelClass: could not
-      //  resolve Wallet using modelPaths". Direct import is reliable.
-      modelClass: Wallet,
+      // Lazy class reference. Transaction doesn't share a cycle with
+      // Wallet today, but using the function form here too keeps the
+      // model-resolution pattern consistent across the codebase and
+      // safe if a future relation is added.
+      modelClass: () => require('./Wallet').Wallet,
       join: {
         from: 'transactions.wallet_id',
         to: 'wallets.id',

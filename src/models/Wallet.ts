@@ -17,10 +17,12 @@ export class Wallet extends Model {
   static relationMappings = {
     user: {
       relation: Model.BelongsToOneRelation,
-      // Direct import rather than the string 'User' for the same reason
-      // as Transaction → Wallet: the string form can fail to resolve at
-      // boot and surface as a 500 on /admin/transactions.
-      modelClass: User,
+      // Lazy class reference to break the User ↔ Wallet cycle. Objection
+      // invokes the function when the relation is first built, by which
+      // point both modules have finished evaluating. A direct import
+      // would be `undefined` here because User.ts is in the middle of
+      // loading and hasn't reached its `export class User` yet.
+      modelClass: () => require('./User').User,
       join: {
         from: 'wallets.user_id',
         to: 'users.id',
