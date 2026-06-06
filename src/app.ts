@@ -100,6 +100,38 @@ const knexInstance = knex({
 
 Model.knex(knexInstance);
 
+// ---------------------------------------------------------------------------
+// Auto-migrate on boot.
+//
+// Render's startCommand is `npm run migrate:verbose && npm start` per
+// render.yaml — but per the env-override memory, dashboard env vars
+// (including startCommand) win over render.yaml. If the dashboard ever
+// gets `npm start` only, migrations never run and the next deploy
+// silently leaves the schema behind. We belt-and-brace this by running
+// pending migrations here on every cold start.
+//
+// `migrate.latest()` is idempotent — Knex only runs files not already
+// in `knex_migrations`, so a no-op when the DB is current. We catch
+// errors so a bad migration doesn't crash the whole app (it'll still
+// be reported via Render logs).
+// ---------------------------------------------------------------------------
+(async () => {
+  try {
+    const [batch, ran] = await knexInstance.migrate.latest({
+      directory: './src/database/migrations',
+      extension: 'ts',
+    });
+    if (ran.length > 0) {
+      console.log(`[migrate] ✅ Boot migration batch ${batch}: ${ran.length} new file(s)`);
+      for (const m of ran) console.log(`  - ${m}`);
+    } else {
+      console.log('[migrate] ✅ Schema is up to date');
+    }
+  } catch (err: any) {
+    console.error('[migrate] ❌ Boot migration failed:', err?.message || err);
+  }
+})();
+
 // Health check endpoints
 app.get('/', (req, res) => {
   res.json({
