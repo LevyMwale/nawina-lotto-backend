@@ -90,4 +90,48 @@ export class AdminService {
       .select('id', 'username', 'role', 'full_name', 'last_login', 'is_active', 'created_at')
       .orderBy('created_at', 'desc');
   }
+
+  /**
+   * Change an admin's own password. Self-service only — the caller
+   * (route handler) supplies the target adminId from req.adminId, so
+   * no one can change someone else's password through this method.
+   *
+   * Validation:
+   *   - currentPassword must match the stored bcrypt hash
+   *   - newPassword must be at least 8 chars
+   *   - newPassword must differ from currentPassword
+   *
+   * Cost factor 12 matches createAdmin() so an attacker can't tell
+   * new vs. legacy hashes apart by hash time.
+   */
+  async changePassword(
+    adminId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const admin = await Admin.query().findById(adminId);
+    if (!admin) {
+      throw new Error('Admin not found');
+    }
+    if (!admin.is_active) {
+      throw new Error('Admin account is deactivated');
+    }
+
+    const valid = await bcrypt.compare(currentPassword, admin.password_hash);
+    if (!valid) {
+      throw new Error('Current password is incorrect');
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error('New password must be at least 8 characters');
+    }
+    if (newPassword === currentPassword) {
+      throw new Error('New password must be different from the current one');
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await Admin.query()
+      .patch({ password_hash: newHash, updated_at: new Date() })
+      .where({ id: adminId });
+  }
 }

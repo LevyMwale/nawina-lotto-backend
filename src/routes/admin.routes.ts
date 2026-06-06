@@ -59,6 +59,31 @@ router.post('/admins', requireRole('super_admin'), async (req: AdminAuthRequest,
   }
 });
 
+// Self-service password change. Any signed-in admin can hit this —
+// but the route always uses req.adminId from the verified JWT, so
+// no one can change someone else's password even by tampering with
+// the request body. No requireRole gate: super_admins, admins, and
+// support all get to rotate their own.
+router.post('/admins/me/change-password', async (req: AdminAuthRequest, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+    }
+    await adminService.changePassword(req.adminId!, currentPassword, newPassword);
+    res.json({ success: true });
+  } catch (error: any) {
+    const msg = error?.message || 'Failed to change password';
+    // 401 for auth-shaped failures (wrong current password, deactivated
+    // account). 400 for everything else (validation: length, same-as-old).
+    // The 404 "Admin not found" is unlikely (their own JWT points at a
+    // deleted row) but we surface it as 401 too — same auth-flavoured
+    // class of problem.
+    const status = msg.includes('incorrect') || msg.includes('not found') || msg.includes('deactivated') ? 401 : 400;
+    res.status(status).json({ error: msg });
+  }
+});
+
 // ============================================
 // DASHBOARD STATS
 // ============================================
