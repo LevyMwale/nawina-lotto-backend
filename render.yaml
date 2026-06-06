@@ -28,3 +28,10 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: FOOTBALL_DATA_API_KEY
+        # Free tier (10 req/min). The /api/soccer/matches/* proxy and the
+        # soccer quiz question generator both read this server-side. If
+        # the dashboard has its own value, that one wins (see
+        # nawina-backend-render-env-override.md). Keep them in sync when
+        # rotating the key.
+        sync: false

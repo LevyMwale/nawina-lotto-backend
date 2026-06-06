@@ -29,13 +29,30 @@ const router = Router();
 
 // ---------------------------------------------------------------------------
 // Fixtures
+//
+// The widget treats an empty list as "nothing to show" (loading state),
+// so transient upstream errors (football-data.org rate-limited, network
+// hiccup) should return 200 with `data: []` and an `error` field, NOT a
+// 500. A 500 stops the widget from re-polling and lights up the console
+// with a scary stack — a 200 with an empty list keeps the UI calm and
+// the next poll will retry naturally.
+//
+// The only 500s left are genuine server bugs (unhandled exception),
+// which is the right place for them.
 // ---------------------------------------------------------------------------
 router.get('/matches/live', async (_req, res) => {
   try {
     const matches = await getLiveMatches();
     res.json({ data: matches, fetchedAt: Date.now() });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const msg = error?.message || 'Upstream error';
+    // Config-level errors (missing API key) are 500 — operator must fix.
+    if (msg.includes('not configured')) {
+      return res.status(500).json({ error: msg });
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[soccer] /matches/live upstream:`, msg);
+    res.json({ data: [], fetchedAt: Date.now(), error: msg });
   }
 });
 
@@ -44,7 +61,13 @@ router.get('/matches/upcoming', async (_req, res) => {
     const matches = await getUpcomingMatches();
     res.json({ data: matches, fetchedAt: Date.now() });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const msg = error?.message || 'Upstream error';
+    if (msg.includes('not configured')) {
+      return res.status(500).json({ error: msg });
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[soccer] /matches/upcoming upstream:`, msg);
+    res.json({ data: [], fetchedAt: Date.now(), error: msg });
   }
 });
 
@@ -53,7 +76,13 @@ router.get('/matches/recent', async (_req, res) => {
     const matches = await getRecentResults();
     res.json({ data: matches, fetchedAt: Date.now() });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const msg = error?.message || 'Upstream error';
+    if (msg.includes('not configured')) {
+      return res.status(500).json({ error: msg });
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[soccer] /matches/recent upstream:`, msg);
+    res.json({ data: [], fetchedAt: Date.now(), error: msg });
   }
 });
 
