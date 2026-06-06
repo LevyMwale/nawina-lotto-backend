@@ -5,6 +5,7 @@ import { DiceRollService } from '../services/games/dice-roll.service';
 import { LottoService } from '../services/games/lotto.service';
 import { AviatorService } from '../services/games/aviator.service';
 import { QuizService } from '../services/games/quiz.service';
+import { SoccerService, type LeagueCode } from '../services/games/soccer.service';
 import { GamePlay } from '../models/GamePlay';
 
 const router = Router();
@@ -18,6 +19,7 @@ const diceRollService = new DiceRollService();
 const lottoService = new LottoService();
 const aviatorService = new AviatorService();
 const quizService = new QuizService();
+const soccerService = new SoccerService();
 
 // ============================================
 // SPIN THE WHEEL
@@ -164,6 +166,45 @@ router.post('/quiz/play', async (req: AuthRequest, res) => {
     }
 
     const result = await quizService.play(req.userId!, Number(stake));
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// SOCCER QUIZ
+// ============================================
+//
+// The lobby widget + question-preview endpoints are PUBLIC (no auth) so
+// the fixture list can render before login. The actual stake-bearing
+// /play endpoint below IS auth'd (this whole router is under authenticate).
+// ============================================
+router.post('/soccer-quiz/play', async (req: AuthRequest, res) => {
+  try {
+    const { fixture, selectedIndex, stake } = req.body || {};
+    if (!fixture || typeof fixture !== 'object') {
+      return res.status(400).json({ error: 'Fixture is required' });
+    }
+    if (typeof selectedIndex !== 'number' || selectedIndex < 0 || selectedIndex > 3) {
+      return res.status(400).json({ error: 'Valid selectedIndex (0-3) is required' });
+    }
+    if (typeof stake !== 'number' || stake <= 0) {
+      return res.status(400).json({ error: 'Valid stake is required' });
+    }
+
+    const result = await soccerService.play(
+      req.userId!,
+      {
+        id: Number(fixture.id),
+        competitionCode: fixture.competitionCode as LeagueCode,
+        homeTeam: fixture.homeTeam,
+        awayTeam: fixture.awayTeam,
+        competition: fixture.competition,
+      },
+      selectedIndex,
+      stake,
+    );
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });

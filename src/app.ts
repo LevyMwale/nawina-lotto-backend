@@ -8,6 +8,7 @@ import authRoutes from './routes/auth.routes';
 import walletRoutes from './routes/wallet.routes';
 import gamesRoutes from './routes/games.routes';
 import adminRoutes from './routes/admin.routes';
+import soccerRoutes from './routes/soccer.routes';
 
 dotenv.config();
 
@@ -131,6 +132,9 @@ console.log('✅ Games routes registered at /api/games');
 app.use('/api/admin', adminRoutes);
 console.log('✅ Admin routes registered at /api/admin');
 
+app.use('/api/soccer', soccerRoutes);
+console.log('✅ Soccer routes registered at /api/soccer');
+
 // Debug: Log all registered routes at boot. Uses the same enumerator the
 // 404 handler uses, so the boot log and the 404 payload can never drift
 // apart.
@@ -171,6 +175,7 @@ function listAvailableRoutes(): string[] {
     { prefix: '/api/wallet', router: unwrap(walletRoutes) },
     { prefix: '/api/games', router: unwrap(gamesRoutes) },
     { prefix: '/api/admin', router: unwrap(adminRoutes) },
+    { prefix: '/api/soccer', router: unwrap(soccerRoutes) },
   ];
   for (const { prefix, router } of directRouters) {
     const stack = router?.stack || [];
@@ -224,6 +229,11 @@ function listAvailableRoutes(): string[] {
       'POST /api/games/aviator/round',
       'POST /api/games/aviator/settle',
       'POST /api/games/aviator/play',
+      'POST /api/games/soccer-quiz/play',
+      'GET /api/soccer/matches/live',
+      'GET /api/soccer/matches/upcoming',
+      'GET /api/soccer/matches/recent',
+      'POST /api/soccer/quiz-question',
       'GET /api/games/history',
       'GET /api/games/verify/:gameId',
       'POST /api/admin/login',
