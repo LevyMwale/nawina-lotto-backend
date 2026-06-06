@@ -8,8 +8,20 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 const JWT_EXPIRES_IN = '7d';
 
 export class AuthService {
+  // Normalize Zambian phone to +260XXXXXXXXX
+  private normalizePhone(phone: string): string {
+    let p = phone.trim().replace(/\s+/g, '');
+    if (p.startsWith('0')) return '+260' + p.slice(1);
+    if (p.startsWith('260')) return '+' + p;
+    if (!p.startsWith('+260')) return '+260' + p;
+    return p;
+  }
+
   // Register new user
   async register(phone: string, pin: string, fullName?: string) {
+    // Normalize phone
+    phone = this.normalizePhone(phone);
+
     // Validate phone format (Zambian: +260...)
     if (!phone.match(/^\+260[0-9]{9}$/)) {
       throw new Error('Invalid Zambian phone number. Use format: +260XXXXXXXXX');
@@ -31,7 +43,6 @@ export class AuthService {
 
     // Create user and wallet atomically
     const user = await transaction(User.knex(), async (trx) => {
-      // Create user
       const newUser = await User.query(trx).insert({
         phone,
         pin_hash: pinHash,
@@ -40,7 +51,6 @@ export class AuthService {
         is_active: true,
       });
 
-      // Create wallet
       await Wallet.query(trx).insert({
         user_id: newUser.id,
         balance: 0,
@@ -50,7 +60,6 @@ export class AuthService {
       return newUser;
     });
 
-    // Generate token
     const token = this.generateToken(user.id);
 
     return {
@@ -66,6 +75,9 @@ export class AuthService {
 
   // Login
   async login(phone: string, pin: string) {
+    // Normalize phone
+    phone = this.normalizePhone(phone);
+
     // Find user
     const user = await User.query().findOne({ phone });
     if (!user) {
@@ -86,7 +98,6 @@ export class AuthService {
     // Get wallet balance
     const wallet = await Wallet.query().findOne({ user_id: user.id });
 
-    // Generate token
     const token = this.generateToken(user.id);
 
     return {
@@ -109,9 +120,6 @@ export class AuthService {
   // Verify token
   verifyToken(token: string): { userId: string } {
     try {
-      // Pin the algorithm to HS256. Without this, a token forged with
-      // `alg: none` (or RS256 using a public key as the secret) would
-      // pass jwt.verify. `algorithms` is the supported whitelist.
       return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as { userId: string };
     } catch (error) {
       throw new Error('Invalid or expired token');
