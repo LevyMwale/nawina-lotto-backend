@@ -223,7 +223,10 @@ export class BlackjackService {
       const play = await GamePlay.query(trx).findById(gameId);
       if (!play || play.user_id !== userId) throw new Error('Game not found');
       if (play.result?.outcome !== 'in_progress') throw new Error('Game already settled');
-      if (play.stake !== stake) throw new Error('Stake mismatch');
+      // game_plays.stake is decimal(10,2) in Postgres, which Knex returns
+      // as a string like "10.00". Coerce both sides to Number so the
+      // comparison doesn't false-positive on a 1-decimal display value.
+      if (Number(play.stake) !== Number(stake)) throw new Error('Stake mismatch');
 
       const state = play.bet_data as BlackjackState;
       const deckId = state.deck_id;
