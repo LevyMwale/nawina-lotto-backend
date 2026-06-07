@@ -32,8 +32,14 @@ export const LEAGUE_CODES = {
   LIGUE_1:          'FL1',
   CHAMPIONS_LEAGUE: 'CL',
   EUROPA_LEAGUE:    'EL',
-  AFCON:            'AFCN',
-  CAF_CL:           'CAFCL',
+  // Africa Cup of Nations — code is "AC" on football-data.org, not
+  // "AFCN" (we used a custom shorthand; the API didn't recognize it,
+  // silently returning empty African match data). The frontend
+  // LEAGUE_CODES map mirrors this same correct value.
+  AFCON:            'AC',
+  // CAF Champions League — same code as AFC Asian Champions League
+  // on the upstream; the API just reuses "ACL" for both.
+  CAF_CL:           'ACL',
   // Summer-active leagues — included so the lobby widget has fixtures
   // during the European off-season (mid-May to mid-August), when PL/PD/
   // BL1/SA/FL1/CL are all dark. Both MLS and Brazilian Serie A run
@@ -51,8 +57,8 @@ const LEAGUE_LABEL: Record<LeagueCode, string> = {
   FL1: 'Ligue 1',
   CL: 'Champions League',
   EL: 'Europa League',
-  AFCN: 'AFCON',
-  CAFCL: 'CAF Champions League',
+  AC: 'Africa Cup of Nations',
+  ACL: 'CAF Champions League',
   MLS: 'Major League Soccer',
   BSA: 'Brasileirão',
 };
