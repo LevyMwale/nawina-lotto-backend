@@ -3,6 +3,7 @@ import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
 import { User } from '../../models/User';
+import { fetchQuestions as fetchOpenTdbQuestions } from './opentdb.client';
 
 interface QuizQuestion {
   id: string;
@@ -99,6 +100,31 @@ export class QuizService {
   }
 
   /**
+   * Pull 5 trivia questions for a round. We try OpenTDB first (4M+ questions
+   * across 24 categories) and fall back to the bundled QUESTION_BANK if
+   * the API is unreachable. Both paths return the same `QuizQuestion` shape
+   * so downstream code is agnostic to the source.
+   */
+  private async loadQuestions(): Promise<{ questions: QuizQuestion[]; source: 'opentdb' | 'local'; seed: string }> {
+    try {
+      const fresh = await fetchOpenTdbQuestions({
+        amount: DEFAULT_QUIZ_CONFIG.questionsPerRound,
+        category: 9, // General Knowledge — broadest pool
+      });
+      // Build a stable seed from the question ids so the verify endpoint
+      // can still produce a deterministic hash. Not cryptographic.
+      const seed = fresh.map((q) => q.id).join('|').slice(0, 64) || 'opentdb';
+      return { questions: fresh, source: 'opentdb', seed };
+    } catch (e: any) {
+      // Soft-fail: log and use the local bank. The player still gets a round.
+      console.warn('[Quiz] OpenTDB unavailable, using local bank:', e?.message || e);
+      const { seed, random } = this.rngService.generateRandom();
+      const questions = pickQuestions(QUESTION_BANK, DEFAULT_QUIZ_CONFIG.questionsPerRound, random);
+      return { questions, source: 'local', seed };
+    }
+  }
+
+  /**
    * Play a Trivia Quiz round. The server picks 5 questions deterministically
    * using the RNG, decides per-question correctness using a weighted roll
    * (so the game isn't all-or-nothing), and pays out a multiplier that
@@ -126,9 +152,8 @@ export class QuizService {
         game_type: 'quiz',
       });
 
-      // 3. Pick 5 questions using the RNG. We shuffle the bank and take 5.
-      const { seed, random } = this.rngService.generateRandom();
-      const picked = pickQuestions(QUESTION_BANK, DEFAULT_QUIZ_CONFIG.questionsPerRound, random);
+      // 3. Pick 5 questions — OpenTDB first, local bank fallback.
+      const { questions: picked, seed } = await this.loadQuestions();
 
       // 4. Roll per-question correctness using additional RNG draws so the
       // seed is mixed across rolls.
