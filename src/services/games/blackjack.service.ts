@@ -205,7 +205,13 @@ export class BlackjackService {
       if (wasNatural) {
         return await this.settleHand(trx, userId, stake, inserted.id);
       }
-      return this.snapshot(inserted.id, /*isPlayerTurn*/ true, stake, /*doubled*/ false, /*payout*/ 0, /*balance*/ null);
+      // Build the snapshot from the in-memory `inserted` row + a fresh
+      // wallet balance read. We deliberately do NOT re-read via
+      // GamePlay.query().findById() here — that query would run on a
+      // different connection and not see the uncommitted insert, causing
+      // 'Game not found after settle'. The inserted row IS the source
+      // of truth for this hand.
+      return this.buildSnapshot(inserted, /*isPlayerTurn*/ true, stake, /*doubled*/ false, /*payout*/ 0);
     });
   }
 
@@ -259,7 +265,7 @@ export class BlackjackService {
           doubled,
         } as BlackjackState,
       });
-      return this.snapshot(updated.id, /*isPlayerTurn*/ true, effectiveStake, doubled, /*payout*/ 0, /*balance*/ null);
+      return this.buildSnapshot(updated, /*isPlayerTurn*/ true, effectiveStake, doubled, /*payout*/ 0);
     });
   }
 
@@ -323,22 +329,24 @@ export class BlackjackService {
       payout,
     });
 
-    return this.snapshot(updated.id, /*isPlayerTurn*/ false, stake, doubled, payout, /*balance*/ null);
+    return this.buildSnapshot(updated, /*isPlayerTurn*/ false, stake, doubled, payout);
   }
 
   // -------------------------------------------------------------------------
-  // Build the public response. Fetches the new balance for the final frame.
+  // Build the public response from an in-memory GamePlay row + fresh
+  // wallet balance. The previous implementation re-queried GamePlay
+  // outside the active transaction, which couldn't see the just-inserted
+  // row and threw 'Game not found after settle' on every deal. We now
+  // take the row directly so the response is built from committed state
+  // without an extra round trip.
   // -------------------------------------------------------------------------
-  private async snapshot(
-    gameId: string,
+  private async buildSnapshot(
+    play: GamePlay,
     isPlayerTurn: boolean,
     stake: number,
     doubled: boolean,
     payout: number,
-    balanceOverride: number | null,
   ): Promise<BlackjackResult> {
-    const play = await GamePlay.query().findById(gameId);
-    if (!play) throw new Error('Game not found after settle');
     const state = play.bet_data as BlackjackState;
     const walletInfo = await this.walletService.getBalance(play.user_id);
     const canDouble =
@@ -348,7 +356,7 @@ export class BlackjackService {
       computeTotal(state.player) <= 11;
     return {
       success: true,
-      game_id: gameId,
+      game_id: play.id,
       player: state.player,
       dealer: isPlayerTurn ? [state.dealer[0]] : state.dealer,
       player_total: computeTotal(state.player),
@@ -358,7 +366,7 @@ export class BlackjackService {
       status: state.status,
       payout,
       stake: doubled ? stake * 2 : stake,
-      balance: balanceOverride ?? walletInfo.balance,
+      balance: walletInfo.balance,
       seed: play.rng_seed,
     };
   }
