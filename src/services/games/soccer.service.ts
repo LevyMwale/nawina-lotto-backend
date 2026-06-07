@@ -31,8 +31,15 @@ export const LEAGUE_CODES = {
   SERIE_A:          'SA',
   LIGUE_1:          'FL1',
   CHAMPIONS_LEAGUE: 'CL',
+  EUROPA_LEAGUE:    'EL',
   AFCON:            'AFCN',
   CAF_CL:           'CAFCL',
+  // Summer-active leagues — included so the lobby widget has fixtures
+  // during the European off-season (mid-May to mid-August), when PL/PD/
+  // BL1/SA/FL1/CL are all dark. Both MLS and Brazilian Serie A run
+  // roughly April–December with regular midweek + weekend fixtures.
+  MLS:              'MLS',  // Major League Soccer (US/Canada)
+  BRAZILIAN_SERIE_A: 'BSA', // Campeonato Brasileiro Série A
 } as const;
 export type LeagueCode = (typeof LEAGUE_CODES)[keyof typeof LEAGUE_CODES];
 
@@ -43,8 +50,11 @@ const LEAGUE_LABEL: Record<LeagueCode, string> = {
   SA: 'Serie A',
   FL1: 'Ligue 1',
   CL: 'Champions League',
+  EL: 'Europa League',
   AFCN: 'AFCON',
   CAFCL: 'CAF Champions League',
+  MLS: 'Major League Soccer',
+  BSA: 'Brasileirão',
 };
 
 const LEAGUES = Object.values(LEAGUE_CODES);
@@ -153,13 +163,53 @@ function normalize(m: any, code: LeagueCode): Match {
 }
 
 async function fetchMatches(status: 'LIVE' | 'TIMED' | 'FINISHED', dateFrom?: string, dateTo?: string): Promise<Match[]> {
+  // football-data.org rejects date ranges over 10 days with HTTP 400
+  // ("Specified period must not exceed 10 days"). For ranges up to 10
+  // days, we issue a single call. For wider ranges, we chunk the
+  // window into ≤10-day slices and merge.
+  if (!dateFrom || !dateTo) {
+    const data = await fetchMatchesChunk(status, dateFrom, dateTo);
+    return data;
+  }
+  const from = new Date(dateFrom + 'T00:00:00Z');
+  const to   = new Date(dateTo   + 'T00:00:00Z');
+  const dayMs = 24 * 60 * 60 * 1000;
+  const totalDays = Math.floor((to.getTime() - from.getTime()) / dayMs);
+  if (totalDays <= 10) {
+    return await fetchMatchesChunk(status, dateFrom, dateTo);
+  }
+  // Chunk into 10-day windows, fire in parallel, dedupe by match id.
+  const chunks: Array<{ from: string; to: string }> = [];
+  let cursor = new Date(from);
+  while (cursor < to) {
+    const end = new Date(Math.min(cursor.getTime() + 10 * dayMs, to.getTime()));
+    chunks.push({ from: cursor.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) });
+    cursor = new Date(end.getTime() + dayMs);
+  }
+  const results = await Promise.all(chunks.map((c) => fetchMatchesChunk(status, c.from, c.to)));
+  const seen = new Set<number>();
+  const merged: Match[] = [];
+  for (const list of results) {
+    for (const m of list) {
+      if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+    }
+  }
+  return merged;
+}
+
+async function fetchMatchesChunk(status: 'LIVE' | 'TIMED' | 'FINISHED', dateFrom?: string, dateTo?: string): Promise<Match[]> {
   const params = new URLSearchParams();
   params.set('competitions', LEAGUES.join(','));
   if (status !== 'LIVE') params.set('status', status);
   if (dateFrom) params.set('dateFrom', dateFrom);
   if (dateTo)   params.set('dateTo',   dateTo);
   const data = await fetchFD(`/matches?${params.toString()}`);
-  return (data.matches || []).map((m: any) => normalize(m, m.competition?.code as LeagueCode));
+  const matches = (data.matches || []).map((m: any) => normalize(m, m.competition?.code as LeagueCode));
+  if (matches.length === 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[soccer] upstream returned 0 matches for status=${status} window=${dateFrom ?? '-'}..${dateTo ?? '-'} leagues=${LEAGUES.length}`);
+  }
+  return matches;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,13 +230,14 @@ export async function getUpcomingMatches(): Promise<Match[]> {
   const hit = getCached<Match[]>(key);
   if (hit) return hit;
   const today = new Date();
-  // football-data.org rejects date ranges over 10 days with HTTP 400
-  // ("Specified period must not exceed 10 days"). 10 is also plenty for
-  // an "upcoming" panel — anything further out is not actionable for
-  // a daily-fixtures widget.
-  const tenDays = new Date(today.getTime() + 10 * 24 * 60 * 60 * 1000);
+  // 30 days ahead so the lobby shows Copa América, Gold Cup, pre-season
+  // tournaments, and summer leagues (MLS / Brasileirão) that fill the
+  // European off-season gap (mid-May → mid-August). fetchMatches() chunks
+  // the call into ≤10-day slices to stay under football-data.org's hard
+  // limit ("Specified period must not exceed 10 days").
+  const window = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const matches = await fetchMatches('TIMED', fmt(today), fmt(tenDays));
+  const matches = await fetchMatches('TIMED', fmt(today), fmt(window));
   setCached(key, matches);
   return matches;
 }
@@ -196,9 +247,13 @@ export async function getRecentResults(): Promise<Match[]> {
   const hit = getCached<Match[]>(key);
   if (hit) return hit;
   const today = new Date();
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  // 14 days back so the lobby still shows the final weeks of the
+  // European season (last-day-of-PL, UCL final, relegation playoffs)
+  // even a week or two after they happen. Still chunks into ≤10-day
+  // slices server-side.
+  const window = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const matches = await fetchMatches('FINISHED', fmt(weekAgo), fmt(today));
+  const matches = await fetchMatches('FINISHED', fmt(window), fmt(today));
   setCached(key, matches);
   return matches;
 }
