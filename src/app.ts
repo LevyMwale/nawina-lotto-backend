@@ -258,6 +258,8 @@ function listAvailableRoutes(): string[] {
     out.push(
       'POST /api/auth/register',
       'POST /api/auth/login',
+      'POST /api/auth/otp/request',
+      'POST /api/auth/reset-password',
       'GET /api/wallet/balance',
       'GET /api/wallet/balance/:userId',
       'GET /api/wallet/transactions',
