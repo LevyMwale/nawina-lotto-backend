@@ -272,6 +272,7 @@ function listAvailableRoutes(): string[] {
       'POST /api/games/aviator/round',
       'POST /api/games/aviator/settle',
       'POST /api/games/aviator/play',
+      'POST /api/games/blackjack/play',
       'POST /api/games/soccer-quiz/play',
       'GET /api/soccer/matches/live',
       'GET /api/soccer/matches/upcoming',

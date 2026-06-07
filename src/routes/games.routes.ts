@@ -6,6 +6,7 @@ import { LottoService } from '../services/games/lotto.service';
 import { AviatorService } from '../services/games/aviator.service';
 import { QuizService } from '../services/games/quiz.service';
 import { SoccerService, type LeagueCode } from '../services/games/soccer.service';
+import { BlackjackService } from '../services/games/blackjack.service';
 import { GamePlay } from '../models/GamePlay';
 
 const router = Router();
@@ -20,6 +21,7 @@ const lottoService = new LottoService();
 const aviatorService = new AviatorService();
 const quizService = new QuizService();
 const soccerService = new SoccerService();
+const blackjackService = new BlackjackService();
 
 // ============================================
 // SPIN THE WHEEL
@@ -166,6 +168,31 @@ router.post('/quiz/play', async (req: AuthRequest, res) => {
     }
 
     const result = await quizService.play(req.userId!, Number(stake));
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// BLACKJACK
+// ============================================
+//
+// Multi-action flow: deal → (hit | stand | double)* → settled.
+// Body shape: { stake, action: 'deal'|'hit'|'stand'|'double', gameId? }
+// The same /play endpoint handles every action so the client doesn't have
+// to juggle a router. `gameId` is required for everything except 'deal'.
+// ============================================
+router.post('/blackjack/play', async (req: AuthRequest, res) => {
+  try {
+    const { stake, action, gameId } = req.body || {};
+    if (!stake || stake <= 0) {
+      return res.status(400).json({ error: 'Valid stake is required' });
+    }
+    if (!action || !['deal', 'hit', 'stand', 'double'].includes(action)) {
+      return res.status(400).json({ error: 'Valid action is required (deal, hit, stand, double)' });
+    }
+    const result = await blackjackService.play(req.userId!, Number(stake), action, gameId);
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });

@@ -66,5 +66,17 @@ export async function seed(knex: Knex): Promise<void> {
       max_stake: 20,
       is_active: true,
     },
+    {
+      game_type: 'blackjack',
+      odds_config: JSON.stringify({
+        natural: { multiplier: 2.5 },
+        regular_win: { multiplier: 2 },
+        push: { multiplier: 1 },
+      }),
+      payout_config: JSON.stringify({ max_payout: 10000 }),
+      min_stake: 5,
+      max_stake: 100,
+      is_active: true,
+    },
   ]);
 }
