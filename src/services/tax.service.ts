@@ -75,6 +75,14 @@ export class TaxService {
     const knex = ZraReturn.knex();
     const rows: any[] = await knex.raw(sql, [rangeStart, rangeEnd]).then((r: any) => r.rows ?? r);
 
+    // One-line log so the operator can see in the Render logs what
+    // date range the query actually used. Useful for debugging
+    // "K0.00 in the UI but I have transactions" reports.
+    console.log(
+      `[tax] computeReturn ${periodStart}..${periodEnd} ` +
+      `(sql: ${rangeStart}..<${rangeEnd}): ${rows.length} player row(s)`,
+    );
+
     const breakdown: PlayerTaxLine[] = rows.map((r) => {
       const deposits = round2(Number(r.deposits) || 0);
       const payouts = round2(Number(r.payouts) || 0);
