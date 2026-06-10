@@ -9,6 +9,7 @@ import { SoccerService, type LeagueCode } from '../services/games/soccer.service
 import { BlackjackService } from '../services/games/blackjack.service';
 import { HourlyDrawService } from '../services/games/hourly-draw.service';
 import { GamePlay } from '../models/GamePlay';
+import { Transaction } from '../models/Transaction';
 
 const router = Router();
 
@@ -352,6 +353,85 @@ router.get('/verify/:gameId', async (req: AuthRequest, res) => {
       message: 'Use this seed to verify the game outcome was random and fair',
     });
   } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// LEADERBOARD — real top winners (live data)
+// ============================================
+router.get('/leaderboard', async (_req, res) => {
+  try {
+    const knex = Transaction.knex();
+    const limit = Math.min(50, parseInt((_req as any).query.limit as string) || 10);
+
+    // 1. Sum all 'win' + 'bonus' transactions per user
+    const winRows = await knex.raw(`
+      SELECT
+        u.id AS user_id,
+        COALESCE(u.full_name, u.phone) AS name,
+        SUM(t.amount) AS winnings,
+        COUNT(t.id) AS games
+      FROM transactions t
+      JOIN wallets w ON w.id = t.wallet_id
+      JOIN users u ON u.id = w.user_id
+      WHERE t.type IN ('win', 'bonus')
+        AND t.status = 'completed'
+      GROUP BY u.id, u.full_name, u.phone
+      ORDER BY winnings DESC
+      LIMIT ?
+    `, [limit]);
+
+    // 2. Hourly draw winners (jackpot wins)
+    const drawRows = await knex.raw(`
+      SELECT
+        u.id AS user_id,
+        COALESCE(u.full_name, u.phone) AS name,
+        SUM(hd.prize_pool) AS winnings,
+        COUNT(hd.id) AS games
+      FROM hourly_draws hd
+      JOIN users u ON u.id = hd.winner_user_id
+      WHERE hd.status = 'completed'
+        AND hd.winner_user_id IS NOT NULL
+      GROUP BY u.id, u.full_name, u.phone
+      ORDER BY winnings DESC
+      LIMIT ?
+    `, [limit]);
+
+    // 3. Merge and deduplicate by user_id
+    const map = new Map<string, { rank: number; name: string; winnings: number; games: number }>();
+    for (const r of winRows.rows || []) {
+      map.set(r.user_id, {
+        rank: 0,
+        name: r.name,
+        winnings: Number(r.winnings || 0),
+        games: Number(r.games || 0),
+      });
+    }
+    for (const r of drawRows.rows || []) {
+      const existing = map.get(r.user_id);
+      if (existing) {
+        existing.winnings += Number(r.winnings || 0);
+        existing.games += Number(r.games || 0);
+      } else {
+        map.set(r.user_id, {
+          rank: 0,
+          name: r.name,
+          winnings: Number(r.winnings || 0),
+          games: Number(r.games || 0),
+        });
+      }
+    }
+
+    // 4. Sort, assign ranks, and return
+    const entries = Array.from(map.values())
+      .sort((a, b) => b.winnings - a.winnings)
+      .slice(0, limit)
+      .map((e, i) => ({ ...e, rank: i + 1 }));
+
+    res.json({ entries });
+  } catch (error: any) {
+    console.error('[Leaderboard] error:', error);
     res.status(400).json({ error: error.message });
   }
 });
