@@ -51,7 +51,8 @@ interface LipilaConfig {
 }
 
 function getConfig(): LipilaConfig {
-  const apiKey = process.env.LIPILA_API_KEY || '';
+  // Trim whitespace — common copy-paste issue from dashboards
+  const apiKey = (process.env.LIPILA_API_KEY || '').trim();
   const envBase = (process.env.LIPILA_BASE_URL || '').replace(/\/$/, '');
   const baseUrl = envBase || 'https://api.lipila.dev';
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
@@ -67,6 +68,41 @@ function getConfig(): LipilaConfig {
   }
 
   return { apiKey, baseUrl, appUrl };
+}
+
+/** Try the standard x-api-key header first. On 401, retry with Authorization: Bearer. */
+async function lipilaFetch(
+  url: string,
+  apiKey: string,
+  options: { method: string; body?: string; callbackUrl?: string }
+): Promise<Response> {
+  const baseHeaders: Record<string, string> = {
+    accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (options.callbackUrl) {
+    baseHeaders.callbackUrl = options.callbackUrl;
+  }
+
+  // Attempt 1: x-api-key (documented in Lipila docs)
+  const res1 = await fetch(url, {
+    method: options.method,
+    headers: { ...baseHeaders, 'x-api-key': apiKey },
+    body: options.body,
+  });
+
+  if (res1.status !== 401) {
+    return res1;
+  }
+
+  // Attempt 2: Authorization: Bearer (some gateways use this instead)
+  console.log('[Lipila] x-api-key returned 401 — retrying with Authorization: Bearer ...');
+  const res2 = await fetch(url, {
+    method: options.method,
+    headers: { ...baseHeaders, Authorization: `Bearer ${apiKey}` },
+    body: options.body,
+  });
+  return res2;
 }
 
 export class LipilaService {
@@ -100,24 +136,17 @@ export class LipilaService {
       email: '',
     };
 
-    const headers: Record<string, string> = {
-      accept: 'application/json',
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-    };
-    if (config.appUrl) {
-      headers.callbackUrl = `${config.appUrl}/api/wallet/lipila-callback`;
-    }
+    const callbackUrl = config.appUrl ? `${config.appUrl}/api/wallet/lipila-callback` : undefined;
 
     try {
       const url = `${config.baseUrl}/api/v1/collections/mobile-money`;
       console.log(`[Lipila] POST ${url} — ref=${referenceId}, amount=${amount}, phone=${normalizedPhone}`);
-      console.log(`[Lipila] x-api-key present: ${!!config.apiKey} (length: ${config.apiKey.length})`);
+      console.log(`[Lipila] x-api-key present: ${!!config.apiKey} (length: ${config.apiKey.length}, startsWith: ${config.apiKey.slice(0, 3)})`);
 
-      const response = await fetch(url, {
+      const response = await lipilaFetch(url, config.apiKey, {
         method: 'POST',
-        headers,
         body: JSON.stringify(body),
+        callbackUrl,
       });
 
       const data: any = await response.json().catch(() => ({}));
@@ -166,13 +195,7 @@ export class LipilaService {
       const url = `${config.baseUrl}/api/v1/collections/mobile-money/${encodeURIComponent(reference)}`;
       console.log(`[Lipila] GET ${url}`);
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          accept: 'application/json',
-          'x-api-key': config.apiKey,
-        },
-      });
+      const response = await lipilaFetch(url, config.apiKey, { method: 'GET' });
 
       const data: any = await response.json().catch(() => ({}));
 
@@ -234,23 +257,16 @@ export class LipilaService {
       email: '',
     };
 
-    const headers: Record<string, string> = {
-      accept: 'application/json',
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-    };
-    if (config.appUrl) {
-      headers.callbackUrl = `${config.appUrl}/api/wallet/lipila-callback`;
-    }
+    const callbackUrl = config.appUrl ? `${config.appUrl}/api/wallet/lipila-callback` : undefined;
 
     try {
       const url = `${config.baseUrl}/api/v1/disbursements/mobile-money`;
       console.log(`[Lipila] POST ${url} — ref=${referenceId}, amount=${amount}, phone=${normalizedPhone}`);
 
-      const response = await fetch(url, {
+      const response = await lipilaFetch(url, config.apiKey, {
         method: 'POST',
-        headers,
         body: JSON.stringify(body),
+        callbackUrl,
       });
 
       const data: any = await response.json().catch(() => ({}));
