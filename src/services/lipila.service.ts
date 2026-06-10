@@ -53,7 +53,11 @@ interface LipilaConfig {
 function getConfig(): LipilaConfig {
   // Trim whitespace — common copy-paste issue from dashboards
   const apiKey = (process.env.LIPILA_API_KEY || '').trim();
-  const envBase = (process.env.LIPILA_BASE_URL || '').replace(/\/$/, '');
+  let envBase = (process.env.LIPILA_BASE_URL || '').replace(/\/$/, '');
+  // Guard against missing protocol — some env vars are set to just "blz.lipila.io"
+  if (envBase && !envBase.match(/^https?:\/\//)) {
+    envBase = 'https://' + envBase;
+  }
   const baseUrl = envBase || 'https://blz.lipila.io';
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
 
