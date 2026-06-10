@@ -139,24 +139,25 @@ router.post('/deposit', async (req: AuthRequest, res) => {
       cardDetails
     });
 
-    console.log('✅ Deposit successful:', result);
+    console.log('✅ Deposit result:', result);
 
     res.json({
       success: true,
       balance: result.balance,
       transactionId: result.transactionId,
-      message: `Deposit of K${amount} successful!`,
-      // The wallet credit now generates an invoice atomically. We
-      // surface it here so the player app can show "View invoice" on
-      // the deposit confirmation and link to the PDF.
-      invoice: result.invoice
+      pending: (result as any).pending || false,
+      reference: (result as any).reference || null,
+      message: (result as any).pending
+        ? ((result as any).message || 'Deposit pending — please check your phone to approve')
+        : `Deposit of K${amount} successful!`,
+      invoice: (result as any).invoice
         ? {
-            id: result.invoice.id,
-            invoiceNumber: result.invoice.invoice_number,
-            amount: result.invoice.amount,
-            exciseDuty: result.invoice.excise_duty,
-            netAmount: result.invoice.net_amount,
-            pdfUrl: `/api/invoices/${result.invoice.id}/pdf`,
+            id: (result as any).invoice.id,
+            invoiceNumber: (result as any).invoice.invoice_number,
+            amount: (result as any).invoice.amount,
+            exciseDuty: (result as any).invoice.excise_duty,
+            netAmount: (result as any).invoice.net_amount,
+            pdfUrl: `/api/invoices/${(result as any).invoice.id}/pdf`,
           }
         : null,
     });
@@ -194,13 +195,17 @@ router.post('/withdraw', async (req: AuthRequest, res) => {
       cardDetails
     });
 
-    console.log('✅ Withdrawal successful:', result);
+    console.log('✅ Withdrawal result:', result);
 
     res.json({
       success: true,
       balance: result.balance,
       transactionId: result.transactionId,
-      message: `Withdrawal of K${amount} successful!`
+      pending: (result as any).pending || false,
+      reference: (result as any).reference || null,
+      message: (result as any).pending
+        ? ((result as any).message || 'Withdrawal pending — processing via mobile money')
+        : `Withdrawal of K${amount} successful!`,
     });
   } catch (error: any) {
     console.error('❌ Withdrawal error:', error);
