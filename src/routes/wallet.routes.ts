@@ -7,7 +7,65 @@ const walletService = new WalletService();
 
 console.log('📦 Wallet routes file loaded');
 
-// Apply authentication to all routes
+// ── Public health check (NO AUTH) ──
+// GET /api/wallet/lipila-health
+router.get('/lipila-health', async (_req, res) => {
+  try {
+    const apiKey = (process.env.LIPILA_API_KEY || '').trim();
+    const baseUrl = (process.env.LIPILA_BASE_URL || 'https://api.lipila.dev').replace(/\/$/, '');
+
+    if (!apiKey) {
+      return res.status(503).json({
+        status: 'missing_key',
+        message: 'LIPILA_API_KEY is not set in environment variables',
+        fix: 'Add LIPILA_API_KEY to Render dashboard env vars',
+      });
+    }
+
+    const testUrl = `${baseUrl}/api/v1/collections/mobile-money/health-check-test-ref`;
+    console.log(`[LipilaHealth] Testing auth with GET ${testUrl}`);
+
+    const response = await fetch(testUrl, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        'x-api-key': apiKey,
+      },
+    });
+
+    const data: any = await response.json().catch(() => ({}));
+
+    if (response.status === 401) {
+      return res.status(503).json({
+        status: 'unauthorized',
+        message: 'Lipila rejected the API key (HTTP 401)',
+        keyPrefix: apiKey.slice(0, 4) + '...',
+        keyLength: apiKey.length,
+        baseUrl,
+        lipilaError: data?.message || data?.error || null,
+        fix: '1) Log into dashboard.lipila.io → Developer/API Keys → copy a fresh Secret Key. 2) Update LIPILA_API_KEY in Render env vars.',
+      });
+    }
+
+    // 404 is expected (dummy reference doesn't exist) — it proves auth passed
+    return res.json({
+      status: 'ok',
+      message: 'Lipila API key is valid',
+      httpStatus: response.status,
+      keyPrefix: apiKey.slice(0, 4) + '...',
+      baseUrl,
+      lipilaResponse: data?.message || null,
+    });
+  } catch (error: any) {
+    console.error('[LipilaHealth] Exception:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: error.message || 'Health check failed',
+    });
+  }
+});
+
+// Apply authentication to all routes BELOW this line
 router.use(authenticate);
 
 // GET /api/wallet/balance (use authenticated user's ID)
@@ -172,5 +230,6 @@ console.log('   - GET  /transactions');
 console.log('   - POST /deposit');
 console.log('   - POST /withdraw');
 console.log('   - GET  /deposit-status/:reference');
+console.log('   - GET  /lipila-health');
 
 export default router;

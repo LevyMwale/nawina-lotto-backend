@@ -266,6 +266,7 @@ function listAvailableRoutes(): string[] {
       'POST /api/wallet/deposit',
       'POST /api/wallet/withdraw',
       'GET /api/wallet/deposit-status/:reference',
+      'GET /api/wallet/lipila-health',
       'POST /api/games/spin/play',
       'POST /api/games/hourly/ticket',
       'GET /api/games/hourly/current',
