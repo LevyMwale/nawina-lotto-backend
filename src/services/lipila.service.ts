@@ -154,6 +154,8 @@ export class LipilaService {
       if (!response.ok) {
         const msg = data?.message || data?.error || `Lipila HTTP ${response.status}`;
         console.error('[Lipila] initiateDeposit failed:', msg, 'status:', response.status);
+        console.error('[Lipila] FULL RESPONSE BODY:', JSON.stringify(data));
+        console.error('[Lipila] REQUEST SENT:', JSON.stringify(body));
         return { success: false, reference: referenceId, message: msg };
       }
 
