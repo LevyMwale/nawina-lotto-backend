@@ -4,6 +4,7 @@ import { HourlyDrawEntry } from '../../models/HourlyDrawEntry';
 import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
+import { HousePoolService } from './house-pool.service';
 
 const walletService = new WalletService();
 const rngService = new RNGService();
@@ -250,7 +251,17 @@ export class HourlyDrawService {
     // Determine the actual prize amount
     const adminPrize = Number(draw.admin_prize_pool || 0);
     const calculatedPrize = Number(draw.prize_pool || 0);
-    const actualPrize = adminPrize > 0 ? adminPrize : calculatedPrize;
+    let actualPrize = adminPrize > 0 ? adminPrize : calculatedPrize;
+
+    // Global pool check for admin-set prizes (ticket-sales pool is self-funded)
+    if (adminPrize > 0) {
+      const housePool = new HousePoolService();
+      const pool = await housePool.getPoolStatus();
+      if (pool.isExhausted || actualPrize > pool.availableBudget) {
+        console.log(`[Draw] Admin prize ${actualPrize} exceeds pool budget ${pool.availableBudget}. Capping to 0.`);
+        actualPrize = 0;
+      }
+    }
 
     if (totalEntries === 0) {
       await HourlyDraw.query()

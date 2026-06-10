@@ -2,6 +2,7 @@ import { transaction } from 'objection';
 import { WalletService } from '../wallet.service';
 import { GamePlay } from '../../models/GamePlay';
 import { GameConfig } from '../../models/GameConfig';
+import { HousePoolService } from './house-pool.service';
 
 // ============================================================================
 // Soccer service
@@ -307,7 +308,7 @@ interface SoccerQuizConfig {
 }
 
 const DEFAULT_CONFIG: SoccerQuizConfig = {
-  minStake: 5,
+  minStake: 2,
   maxStake: 500,
   correctMultiplier: 2,
 };
@@ -449,6 +450,7 @@ function shuffleSeeded<T>(arr: T[], seed: number): T[] {
  */
 export class SoccerService {
   private walletService = new WalletService();
+  private housePoolService = new HousePoolService();
 
   async play(
     userId: string,
@@ -486,10 +488,10 @@ export class SoccerService {
 
       let payout = correct ? Math.floor(stake * config.correctMultiplier) : 0;
 
-      // Win cap enforcement
-      const winCapacity = await this.walletService.getWinCapacity(userId);
-      if (payout > winCapacity) {
-        console.log(`[Soccer] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+      // Global house pool enforcement
+      const pool = await this.housePoolService.getPoolStatus();
+      if (pool.isExhausted || payout > pool.availableBudget) {
+        console.log(`[Soccer] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
         correct = false;
         payout = 0;
       }

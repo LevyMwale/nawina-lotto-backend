@@ -4,6 +4,7 @@ import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
 import { GameConfig } from '../../models/GameConfig';
 import { User } from '../../models/User';
+import { HousePoolService } from './house-pool.service';
 
 interface AviatorConfig {
   minStake: number;
@@ -21,7 +22,7 @@ interface AviatorConfig {
 // crash curve — TAMANGA is a street-hustler game, the floor is meaner so the
 // few hits that do land feel like a hustle.
 const DEFAULT_AVIATOR_CONFIG: AviatorConfig = {
-  minStake: 5,
+  minStake: 2,
   maxStake: 100,
   crashCurve: {
     ranges: [
@@ -39,10 +40,12 @@ const DEFAULT_AVIATOR_CONFIG: AviatorConfig = {
 export class AviatorService {
   private walletService: WalletService;
   private rngService: RNGService;
+  private housePoolService: HousePoolService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
+    this.housePoolService = new HousePoolService();
   }
 
   /**
@@ -104,10 +107,10 @@ export class AviatorService {
       let won = multiplier > 1.0 && multiplier <= crashPoint;
       let payout = won ? Math.floor(stake * multiplier) : 0;
 
-      // 3b. Win cap enforcement
-      const winCapacity = await this.walletService.getWinCapacity(userId);
-      if (payout > winCapacity) {
-        console.log(`[Aviator] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+      // 3b. Global house pool enforcement
+      const pool = await this.housePoolService.getPoolStatus();
+      if (pool.isExhausted || payout > pool.availableBudget) {
+        console.log(`[Aviator] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
         won = false;
         payout = 0;
       }
@@ -188,10 +191,10 @@ export class AviatorService {
       let won = multiplier > 1.0 && multiplier <= crashPoint;
       let payout = won ? Math.floor(stake * multiplier) : 0;
 
-      // 4b. Win cap enforcement
-      const winCapacity = await this.walletService.getWinCapacity(userId);
-      if (payout > winCapacity) {
-        console.log(`[Aviator] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+      // 4b. Global house pool enforcement
+      const pool = await this.housePoolService.getPoolStatus();
+      if (pool.isExhausted || payout > pool.availableBudget) {
+        console.log(`[Aviator] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
         won = false;
         payout = 0;
       }

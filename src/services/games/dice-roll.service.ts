@@ -2,6 +2,7 @@ import { transaction } from 'objection';
 import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
+import { HousePoolService } from './house-pool.service';
 
 type BetType = 'exact' | 'even_odd' | 'high_low';
 
@@ -19,10 +20,12 @@ const PAYOUT_MULTIPLIERS = {
 export class DiceRollService {
   private walletService: WalletService;
   private rngService: RNGService;
+  private housePoolService: HousePoolService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
+    this.housePoolService = new HousePoolService();
   }
 
   /**
@@ -30,8 +33,8 @@ export class DiceRollService {
    */
   async play(userId: string, stake: number, bet: DiceBet) {
     // Validate stake
-    if (stake < 5 || stake > 100) {
-      throw new Error('Stake must be between K5 and K100');
+    if (stake < 2 || stake > 100) {
+      throw new Error('Stake must be between K2 and K100');
     }
 
     // Validate bet
@@ -52,10 +55,10 @@ export class DiceRollService {
       let multiplier = won ? PAYOUT_MULTIPLIERS[bet.type] : 0;
       let payout = stake * multiplier;
 
-      // 3b. Win cap enforcement
-      const winCapacity = await this.walletService.getWinCapacity(userId);
-      if (payout > winCapacity) {
-        console.log(`[DiceRoll] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+      // 3b. Global house pool enforcement
+      const pool = await this.housePoolService.getPoolStatus();
+      if (pool.isExhausted || payout > pool.availableBudget) {
+        console.log(`[DiceRoll] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
         won = false;
         multiplier = 0;
         payout = 0;

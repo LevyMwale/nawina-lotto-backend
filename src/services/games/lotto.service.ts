@@ -2,6 +2,7 @@ import { transaction } from 'objection';
 import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
+import { HousePoolService } from './house-pool.service';
 
 type LottoVariant = 'pick3' | 'pick5';
 
@@ -29,7 +30,7 @@ const LOTTO_CONFIG: Record<LottoVariant, LottoVariantConfig> = {
       2: 100,   // Match 2
       1: 10,    // Match 1
     },
-    stake: 10,
+    stake: 2,
   },
   pick5: {
     count: 5,
@@ -41,17 +42,19 @@ const LOTTO_CONFIG: Record<LottoVariant, LottoVariantConfig> = {
       3: 500,    // Match 3
       2: 50,     // Match 2
     },
-    stake: 20,
+    stake: 2,
   },
 };
 
 export class LottoService {
   private walletService: WalletService;
   private rngService: RNGService;
+  private housePoolService: HousePoolService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
+    this.housePoolService = new HousePoolService();
   }
 
   /**
@@ -78,10 +81,10 @@ export class LottoService {
       const matches = this.countMatches(bet.numbers, winningNumbers);
       let payout = config.payouts[matches] || 0;  // This will now work
 
-      // 3b. Win cap enforcement
-      const winCapacity = await this.walletService.getWinCapacity(userId);
-      if (payout > winCapacity) {
-        console.log(`[Lotto] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+      // 3b. Global house pool enforcement
+      const pool = await this.housePoolService.getPoolStatus();
+      if (pool.isExhausted || payout > pool.availableBudget) {
+        console.log(`[Lotto] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
         payout = 0;
       }
 

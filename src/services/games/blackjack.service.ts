@@ -24,13 +24,14 @@ import { transaction } from 'objection';
 import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
+import { HousePoolService } from './house-pool.service';
 
 const DECK_BASE = 'https://deckofcardsapi.com/api/deck';
 const TIMEOUT_MS = 8000;
 
 // Stake bounds. Matches the dice service for consistency; the seed row
 // in 001_game_configs.ts carries the same numbers.
-const MIN_STAKE = 5;
+const MIN_STAKE = 2;
 const MAX_STAKE = 100;
 
 // Payouts: natural blackjack 3:2 (i.e. bet + 1.5x net → total return 2.5x),
@@ -143,10 +144,12 @@ function isNatural(cards: Card[]): boolean {
 export class BlackjackService {
   private walletService: WalletService;
   private rngService: RNGService;
+  private housePoolService: HousePoolService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
+    this.housePoolService = new HousePoolService();
   }
 
   async play(userId: string, stake: number, action: Action, gameId?: string): Promise<BlackjackResult> {
@@ -301,10 +304,10 @@ export class BlackjackService {
     let { status, multiplier } = judgeHand(state, playerTotal, dealerTotal, doubled);
     let payout = status === 'in_progress' ? 0 : Math.floor(stake * multiplier);
 
-    // Win cap enforcement
-    const winCapacity = await this.walletService.getWinCapacity(userId);
-    if (payout > winCapacity) {
-      console.log(`[Blackjack] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+    // Global house pool enforcement
+    const pool = await this.housePoolService.getPoolStatus();
+    if (pool.isExhausted || payout > pool.availableBudget) {
+      console.log(`[Blackjack] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
       status = 'lose';
       multiplier = 0;
       payout = 0;

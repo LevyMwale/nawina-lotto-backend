@@ -3,6 +3,7 @@ import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
 import { GameConfig } from '../../models/GameConfig';
+import { HousePoolService } from './house-pool.service';
 
 interface SpinWheelConfig {
   outcomes: {
@@ -24,17 +25,19 @@ const DEFAULT_SPIN_CONFIG: SpinWheelConfig = {
     big: { probability: 0.08, multiplier: 5, label: '5x Win' },
     jackpot: { probability: 0.02, multiplier: 50, label: 'JACKPOT!' },
   },
-  minStake: 5,
+  minStake: 2,
   maxStake: 100,
 };
 
 export class SpinWheelService {
   private walletService: WalletService;
   private rngService: RNGService;
+  private housePoolService: HousePoolService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
+    this.housePoolService = new HousePoolService();
   }
 
   /**
@@ -62,10 +65,10 @@ export class SpinWheelService {
       let multiplier = config.outcomes[outcome].multiplier;
       let payout = stake * multiplier;
 
-      // 3. Enforce liability cap: player cannot win more than they deposited
-      const winCapacity = await this.walletService.getWinCapacity(userId);
-      if (payout > winCapacity) {
-        console.log(`[SpinWheel] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+      // 3. Global house pool enforcement
+      const pool = await this.housePoolService.getPoolStatus();
+      if (pool.isExhausted || payout > pool.availableBudget) {
+        console.log(`[SpinWheel] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
         outcome = 'lose';
         multiplier = 0;
         payout = 0;

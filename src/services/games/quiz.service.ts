@@ -4,6 +4,7 @@ import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
 import { User } from '../../models/User';
 import { fetchQuestions as fetchOpenTdbQuestions } from './opentdb.client';
+import { HousePoolService } from './house-pool.service';
 
 interface QuizQuestion {
   id: string;
@@ -29,7 +30,7 @@ interface QuizConfig {
 }
 
 const DEFAULT_QUIZ_CONFIG: QuizConfig = {
-  minStake: 5,
+  minStake: 2,
   maxStake: 500,
   questionsPerRound: 5,
   payoutByCorrect: [0, 0.4, 0.8, 1.4, 2.5, 5.0],
@@ -93,10 +94,12 @@ function rollCorrect(difficulty: 'easy' | 'medium' | 'hard', r: number): boolean
 export class QuizService {
   private walletService: WalletService;
   private rngService: RNGService;
+  private housePoolService: HousePoolService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
+    this.housePoolService = new HousePoolService();
   }
 
   /**
@@ -155,22 +158,46 @@ export class QuizService {
       // 3. Pick 5 questions — OpenTDB first, local bank fallback.
       const { questions: picked, seed } = await this.loadQuestions();
 
-      // 4. Roll per-question correctness using additional RNG draws so the
-      // seed is mixed across rolls.
-      const perQuestion = picked.map((q) => {
+      // 4. Roll per-question correctness in two phases to simulate the
+      // "pool may be consumed while answering" dynamic.
+      // Phase 1 — questions 1-2 with normal probabilities.
+      const perQuestion: boolean[] = [];
+      for (let i = 0; i < 2; i++) {
         const { random: r } = this.rngService.generateRandom();
-        return rollCorrect(q.difficulty, r);
-      });
+        perQuestion.push(rollCorrect(picked[i].difficulty, r));
+      }
+
+      // Phase 2 — check global pool before questions 3-5.
+      const pool = await this.housePoolService.getPoolStatus();
+      const poolExhausted = pool.isExhausted;
+      // Low = not enough budget to cover a full 5-correct jackpot
+      const potentialJackpot = Math.floor(stake * (DEFAULT_QUIZ_CONFIG.payoutByCorrect[5] ?? 0));
+      const poolLow = pool.availableBudget < potentialJackpot;
+
+      for (let i = 2; i < picked.length; i++) {
+        const { random: r } = this.rngService.generateRandom();
+        if (poolExhausted) {
+          // Pool consumed — force the remaining questions wrong so the
+          // player cannot reach 3+ correct answers (the threshold for
+          // a profitable payout).
+          perQuestion.push(false);
+        } else if (poolLow) {
+          // Pool is running low — make it hard even if the question is easy.
+          perQuestion.push(r < 0.20);
+        } else {
+          perQuestion.push(rollCorrect(picked[i].difficulty, r));
+        }
+      }
       const correctCount = perQuestion.filter(Boolean).length;
 
       // 5. Compute payout
       let multiplier = DEFAULT_QUIZ_CONFIG.payoutByCorrect[correctCount] ?? 0;
       let payout = Math.floor(stake * multiplier);
 
-      // 5b. Win cap enforcement
-      const winCapacity = await this.walletService.getWinCapacity(userId);
-      if (payout > winCapacity) {
-        console.log(`[Quiz] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+      // 5b. Global house pool enforcement (final guard)
+      const finalPool = await this.housePoolService.getPoolStatus();
+      if (finalPool.isExhausted || payout > finalPool.availableBudget) {
+        console.log(`[Quiz] Pool exhausted or payout ${payout} > budget ${finalPool.availableBudget}. Forcing lose.`);
         multiplier = 0;
         payout = 0;
       }

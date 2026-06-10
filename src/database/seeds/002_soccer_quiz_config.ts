@@ -24,7 +24,7 @@ export async function seed(knex: Knex): Promise<void> {
       // explicit ceiling so an admin can tune it without code.
       max_payout: 1000,
     }),
-    min_stake: 5,
+    min_stake: 2,
     max_stake: 500,
     is_active: true,
   });
