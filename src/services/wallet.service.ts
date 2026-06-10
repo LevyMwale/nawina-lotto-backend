@@ -475,17 +475,46 @@ export class WalletService {
     } | null;
   }> {
     return await transaction(Transaction.knex(), async (trx) => {
+      // Re-read the transaction row inside the transaction so we see the
+      // latest status (protects against race conditions from webhook + poll).
+      const freshTxn = await Transaction.query(trx)
+        .findById(txn.id)
+        .forUpdate();
+
+      if (!freshTxn) {
+        throw new Error('Transaction not found');
+      }
+
       // Use the wallet_id stored on the transaction — this is the source of
       // truth and avoids the bug where a mismatched userId was passed in.
       const wallet = await Wallet.query(trx)
-        .findById(txn.wallet_id)
+        .findById(freshTxn.wallet_id)
         .forUpdate();
 
       if (!wallet) {
         throw new Error('Wallet not found');
       }
 
-      const depositAmount = Number(txn.amount);
+      // TRUE IDEMPOTENCY: if already completed, return current state without
+      // touching the wallet again. This prevents double-credit when webhook
+      // and polling call this simultaneously.
+      if (freshTxn.status === 'completed') {
+        const existingInvoice = await invoiceService.findByTransaction(trx, freshTxn.id);
+        return {
+          newBalance: Number(wallet.balance),
+          invoice: existingInvoice
+            ? {
+                id: existingInvoice.id,
+                invoice_number: existingInvoice.invoice_number,
+                amount: Number(existingInvoice.amount),
+                excise_duty: Number(existingInvoice.excise_duty),
+                net_amount: Number(existingInvoice.net_amount),
+              }
+            : null,
+        };
+      }
+
+      const depositAmount = Number(freshTxn.amount);
       const newBalance = Number(wallet.balance) + depositAmount;
 
       await Wallet.query(trx)
@@ -497,13 +526,13 @@ export class WalletService {
           status: 'completed',
           balance_after: newBalance,
         })
-        .where({ id: txn.id });
+        .where({ id: freshTxn.id });
 
       let invoice: any = null;
-      if (txn.type === 'deposit') {
+      if (freshTxn.type === 'deposit') {
         invoice = await invoiceService.generateForDeposit(trx, {
           userId: wallet.user_id,
-          transactionId: txn.id,
+          transactionId: freshTxn.id,
           amount: depositAmount,
         });
       }

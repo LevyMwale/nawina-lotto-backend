@@ -67,6 +67,17 @@ export class InvoiceService {
   }
 
   /**
+   * Find an invoice by its parent transaction id. Used during idempotent
+   * deposit completion so we don't generate duplicate invoices.
+   */
+  async findByTransaction(
+    trx: Knex.Transaction,
+    transactionId: string
+  ): Promise<Invoice | null> {
+    return (await Invoice.query(trx).findOne({ transaction_id: transactionId })) ?? null;
+  }
+
+  /**
    * Allocate the next invoice number. We use a shared Postgres sequence
    * so the allocator is concurrency-safe even under load — two deposits
    * arriving at the same millisecond will get consecutive numbers, not

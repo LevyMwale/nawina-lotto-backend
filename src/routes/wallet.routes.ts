@@ -302,6 +302,56 @@ router.post('/force-complete-deposit/:reference', async (req: AuthRequest, res) 
   }
 });
 
+// GET /api/wallet/audit
+// Returns wallet + every transaction with running balance so you can trace
+// exactly how the current figure was reached.
+router.get('/audit', async (req: AuthRequest, res) => {
+  try {
+    const { Wallet } = await import('../models/Wallet');
+    const { Transaction } = await import('../models/Transaction');
+    const wallet = await Wallet.query().findOne({ user_id: req.userId! });
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+    const txns = await Transaction.query()
+      .where({ wallet_id: wallet.id })
+      .orderBy('created_at', 'asc');
+
+    let running = 0;
+    const audit = txns.map((t) => {
+      const change = Number(t.amount);
+      running += change;
+      return {
+        id: t.id,
+        type: t.type,
+        status: t.status,
+        amount: change,
+        reference: t.reference,
+        created_at: t.created_at,
+        balance_before: Number(t.balance_before),
+        balance_after: Number(t.balance_after),
+        running_balance: round2(running),
+        metadata: t.metadata,
+      };
+    });
+
+    return res.json({
+      wallet_id: wallet.id,
+      current_balance: Number(wallet.balance),
+      computed_balance: round2(running),
+      discrepancy: round2(Number(wallet.balance) - running),
+      transactions: audit.reverse(), // newest first for readability
+    });
+  } catch (error: any) {
+    console.error('❌ Audit error:', error);
+    res.status(500).json({ error: error.message || 'Audit failed' });
+  }
+});
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 console.log('✅ Wallet routes configured with endpoints:');
 console.log('   - GET  /balance');
 console.log('   - GET  /balance/:userId');
@@ -312,5 +362,6 @@ console.log('   - GET  /deposit-status/:reference');
 console.log('   - POST /force-complete-deposit/:reference');
 console.log('   - POST /lipila-callback');
 console.log('   - GET  /lipila-health');
+console.log('   - GET  /audit');
 
 export default router;
