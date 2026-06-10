@@ -71,8 +71,14 @@ export class LipilaService {
     const config = getConfig();
     const referenceId = `NWINA-DEP-${uuidv4()}`;
 
-    // Normalize Zambian phone numbers (ensure 260 prefix without +)
-    const normalizedPhone = phone.replace(/^\+/, '').trim();
+    // Normalize Zambian phone numbers
+    // Must start with 260 (e.g. 260979257247). If it starts with 09/07, prepend 260.
+    let normalizedPhone = phone.replace(/^\+/, '').trim();
+    if (normalizedPhone.match(/^0\d{9}$/)) {
+      normalizedPhone = '260' + normalizedPhone.slice(1);
+    } else if (!normalizedPhone.startsWith('260') && normalizedPhone.length === 9) {
+      normalizedPhone = '260' + normalizedPhone;
+    }
 
     const body = {
       referenceId,
@@ -89,9 +95,13 @@ export class LipilaService {
       const url = `${config.baseUrl}/api/v1/collections/mobile-money`;
       console.log(`[Lipila] POST ${url} — ref=${referenceId}, amount=${amount}, phone=${normalizedPhone}`);
 
+      const headers = getHeaders(config);
+      const apiKeyPresent = !!config.apiKey;
+      console.log(`[Lipila] x-api-key present: ${apiKeyPresent} (first 4 chars: ${config.apiKey ? config.apiKey.slice(0, 4) + '...' : 'NONE'})`);
+
       const response = await fetch(url, {
         method: 'POST',
-        headers: getHeaders(config),
+        headers,
         body: JSON.stringify(body),
       });
 
