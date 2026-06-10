@@ -101,8 +101,16 @@ export class AviatorService {
       });
 
       // 3. Player wins if they cashed out above 1.0 and at/below the crash point
-      const won = multiplier > 1.0 && multiplier <= crashPoint;
-      const payout = won ? Math.floor(stake * multiplier) : 0;
+      let won = multiplier > 1.0 && multiplier <= crashPoint;
+      let payout = won ? Math.floor(stake * multiplier) : 0;
+
+      // 3b. Win cap enforcement
+      const winCapacity = await this.walletService.getWinCapacity(userId);
+      if (payout > winCapacity) {
+        console.log(`[Aviator] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+        won = false;
+        payout = 0;
+      }
 
       // 4. Credit winnings if any
       if (payout > 0) {
@@ -177,8 +185,16 @@ export class AviatorService {
       const crashPoint = this.generateCrashPoint(random, config.crashCurve);
 
       // 4. Determine outcome: did the player cash out before crash?
-      const won = multiplier > 1.0 && multiplier <= crashPoint;
-      const payout = won ? Math.floor(stake * multiplier) : 0;
+      let won = multiplier > 1.0 && multiplier <= crashPoint;
+      let payout = won ? Math.floor(stake * multiplier) : 0;
+
+      // 4b. Win cap enforcement
+      const winCapacity = await this.walletService.getWinCapacity(userId);
+      if (payout > winCapacity) {
+        console.log(`[Aviator] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+        won = false;
+        payout = 0;
+      }
 
       // 5. Credit winnings if any
       if (payout > 0) {

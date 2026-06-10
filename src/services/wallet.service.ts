@@ -623,4 +623,38 @@ export class WalletService {
     return { success: true, transactionRef: uuidv4() };
   }
   */
+
+  /**
+   * Liability cap: how much more can this player win before their
+   * cumulative winnings exceed their cumulative deposits?
+   *
+   * Returns the remaining win capacity (0 or positive). If the
+   * player has already won more than they deposited, capacity is 0.
+   *
+   * Used by game services to force a "lose" outcome when a random
+   * win would push the player past what the house has taken in.
+   */
+  async getWinCapacity(userId: string): Promise<number> {
+    const wallet = await Wallet.query().findOne({ user_id: userId });
+    if (!wallet) return 0;
+
+    const knex = Wallet.knex();
+    const depositRes = await knex.raw(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM transactions
+      WHERE wallet_id = ? AND type = 'deposit' AND status = 'completed'
+    `, [wallet.id]);
+    const totalDeposits = Number(depositRes.rows[0].total);
+
+    const winRes = await knex.raw(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM transactions
+      WHERE wallet_id = ? AND type = 'win' AND status = 'completed'
+    `, [wallet.id]);
+    const totalWins = Number(winRes.rows[0].total);
+
+    const capacity = totalDeposits - totalWins;
+    console.log(`[WinCap] user=${userId} deposits=${totalDeposits} wins=${totalWins} capacity=${capacity}`);
+    return Math.max(0, capacity);
+  }
 }

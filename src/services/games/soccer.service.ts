@@ -474,7 +474,7 @@ export class SoccerService {
     // but we don't trust it). The question generation also doubles as a
     // validation that the fixture is playable.
     const question = await generateQuizQuestion(fixture);
-    const correct = selectedIndex === question.correctIndex;
+    let correct = selectedIndex === question.correctIndex;
 
     return await transaction(GamePlay.knex(), async (trx) => {
       // Debit the stake first (always — the round is played regardless of
@@ -484,7 +484,16 @@ export class SoccerService {
         fixture_id: fixture.id,
       });
 
-      const payout = correct ? Math.floor(stake * config.correctMultiplier) : 0;
+      let payout = correct ? Math.floor(stake * config.correctMultiplier) : 0;
+
+      // Win cap enforcement
+      const winCapacity = await this.walletService.getWinCapacity(userId);
+      if (payout > winCapacity) {
+        console.log(`[Soccer] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+        correct = false;
+        payout = 0;
+      }
+
       if (payout > 0) {
         await this.walletService.credit(userId, payout, 'win', {
           game_type: 'soccer_quiz',

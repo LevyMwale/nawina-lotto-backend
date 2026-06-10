@@ -58,11 +58,20 @@ export class SpinWheelService {
 
       // 2. Generate outcome
       const { seed, random } = this.rngService.generateRandom();
-      const outcome = this.determineOutcome(random, config.outcomes);
-      const multiplier = config.outcomes[outcome].multiplier;
-      const payout = stake * multiplier;
+      let outcome = this.determineOutcome(random, config.outcomes);
+      let multiplier = config.outcomes[outcome].multiplier;
+      let payout = stake * multiplier;
 
-      // 3. Credit winnings if any
+      // 3. Enforce liability cap: player cannot win more than they deposited
+      const winCapacity = await this.walletService.getWinCapacity(userId);
+      if (payout > winCapacity) {
+        console.log(`[SpinWheel] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+        outcome = 'lose';
+        multiplier = 0;
+        payout = 0;
+      }
+
+      // 4. Credit winnings if any
       if (payout > 0) {
         await this.walletService.credit(userId, payout, 'win', {
           game_type: 'spin_wheel',

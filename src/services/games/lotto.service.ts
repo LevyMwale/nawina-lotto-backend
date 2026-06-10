@@ -76,7 +76,14 @@ export class LottoService {
 
       // 3. Calculate matches and payout
       const matches = this.countMatches(bet.numbers, winningNumbers);
-      const payout = config.payouts[matches] || 0;  // This will now work
+      let payout = config.payouts[matches] || 0;  // This will now work
+
+      // 3b. Win cap enforcement
+      const winCapacity = await this.walletService.getWinCapacity(userId);
+      if (payout > winCapacity) {
+        console.log(`[Lotto] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+        payout = 0;
+      }
 
       // 4. Credit winnings
       if (payout > 0) {

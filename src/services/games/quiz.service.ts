@@ -164,8 +164,16 @@ export class QuizService {
       const correctCount = perQuestion.filter(Boolean).length;
 
       // 5. Compute payout
-      const multiplier = DEFAULT_QUIZ_CONFIG.payoutByCorrect[correctCount] ?? 0;
-      const payout = Math.floor(stake * multiplier);
+      let multiplier = DEFAULT_QUIZ_CONFIG.payoutByCorrect[correctCount] ?? 0;
+      let payout = Math.floor(stake * multiplier);
+
+      // 5b. Win cap enforcement
+      const winCapacity = await this.walletService.getWinCapacity(userId);
+      if (payout > winCapacity) {
+        console.log(`[Quiz] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+        multiplier = 0;
+        payout = 0;
+      }
 
       // 6. Credit winnings if any
       if (payout > 0) {

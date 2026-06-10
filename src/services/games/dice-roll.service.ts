@@ -48,9 +48,18 @@ export class DiceRollService {
       const { seed, value: roll } = this.rngService.generateRandomInt(1, 6);
 
       // 3. Check if won
-      const won = this.checkWin(roll, bet);
-      const multiplier = won ? PAYOUT_MULTIPLIERS[bet.type] : 0;
-      const payout = stake * multiplier;
+      let won = this.checkWin(roll, bet);
+      let multiplier = won ? PAYOUT_MULTIPLIERS[bet.type] : 0;
+      let payout = stake * multiplier;
+
+      // 3b. Win cap enforcement
+      const winCapacity = await this.walletService.getWinCapacity(userId);
+      if (payout > winCapacity) {
+        console.log(`[DiceRoll] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+        won = false;
+        multiplier = 0;
+        payout = 0;
+      }
 
       // 4. Credit winnings
       if (payout > 0) {

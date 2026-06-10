@@ -298,8 +298,17 @@ export class BlackjackService {
 
     const playerTotal = computeTotal(state.player);
     const dealerTotal = computeTotal(dealer);
-    const { status, multiplier } = judgeHand(state, playerTotal, dealerTotal, doubled);
-    const payout = status === 'in_progress' ? 0 : Math.floor(stake * multiplier);
+    let { status, multiplier } = judgeHand(state, playerTotal, dealerTotal, doubled);
+    let payout = status === 'in_progress' ? 0 : Math.floor(stake * multiplier);
+
+    // Win cap enforcement
+    const winCapacity = await this.walletService.getWinCapacity(userId);
+    if (payout > winCapacity) {
+      console.log(`[Blackjack] Win cap enforced — user=${userId} would win ${payout} but capacity is ${winCapacity}. Forcing lose.`);
+      status = 'lose';
+      multiplier = 0;
+      payout = 0;
+    }
 
     if (payout > 0) {
       await this.walletService.credit(userId, payout, 'win', {
