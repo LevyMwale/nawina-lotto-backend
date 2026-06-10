@@ -149,7 +149,7 @@ export class WalletService {
         throw new Error('Phone number is required for Lipila deposits');
       }
 
-      const { success, reference, message } = await lipilaService.initiateDeposit(
+      const { success, reference, message, lipilaIdentifier } = await lipilaService.initiateDeposit(
         depositAmount,
         details.mobileNumber,
         userId,
@@ -158,6 +158,8 @@ export class WalletService {
       if (!success) {
         throw new Error(message || 'Lipila deposit initiation failed');
       }
+
+      console.log(`[WalletDeposit] Lipila initiated OK — reference=${reference}, lipilaId=${lipilaIdentifier}`);
 
       const wallet = await Wallet.query().findOne({ user_id: userId });
       if (!wallet) {
@@ -176,9 +178,12 @@ export class WalletService {
           payment_method: method,
           gateway: 'lipila',
           lipila_reference: reference,
+          lipila_identifier: lipilaIdentifier,
           mobile_number: details.mobileNumber,
         },
       });
+
+      console.log(`[WalletDeposit] Pending transaction created — txnId=${txn.id}, walletId=${wallet.id}, userId=${userId}`);
 
       return {
         success: true,
@@ -466,6 +471,7 @@ export class WalletService {
 
     // Already completed — idempotent return
     if (txn.status === 'completed') {
+      console.log(`[WalletDepositStatus] Transaction already completed — txnId=${txn.id}`);
       const invoice = txn.invoice
         ? {
             id: txn.invoice.id,
@@ -487,10 +493,13 @@ export class WalletService {
     }
 
     // Check with Lipila
+    console.log(`[WalletDepositStatus] Checking Lipila status — reference=${reference}, currentTxnStatus=${txn.status}`);
     const lipilaStatus = await lipilaService.checkStatus(reference);
+    console.log(`[WalletDepositStatus] Lipila responded — status=${lipilaStatus.status}, message=${lipilaStatus.message}`);
 
     if (lipilaStatus.status === 'completed') {
       // Atomically credit wallet, update transaction, generate invoice
+      console.log(`[WalletDepositStatus] Completing deposit — crediting wallet for userId=${userId}, amount=${txn.amount}`);
       const result = await transaction(Transaction.knex(), async (trx) => {
         const wallet = await Wallet.query(trx)
           .findOne({ user_id: userId })
@@ -537,6 +546,7 @@ export class WalletService {
         };
       });
 
+      console.log(`[WalletDepositStatus] Deposit completed — newBalance=${result.newBalance}, invoice=${result.invoice?.invoice_number || 'none'}`);
       return {
         status: 'completed' as const,
         balance: result.newBalance,
@@ -545,6 +555,7 @@ export class WalletService {
     }
 
     if (lipilaStatus.status === 'failed') {
+      console.log(`[WalletDepositStatus] Deposit failed — marking txn failed, reference=${reference}`);
       await Transaction.query()
         .patch({ status: 'failed' })
         .where({ id: txn.id });
@@ -555,6 +566,7 @@ export class WalletService {
       };
     }
 
+    console.log(`[WalletDepositStatus] Still pending — reference=${reference}`);
     return {
       status: 'pending' as const,
       message: lipilaStatus.message,
