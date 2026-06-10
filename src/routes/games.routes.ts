@@ -298,8 +298,23 @@ router.post('/hourly/ticket', async (req: AuthRequest, res) => {
 router.get('/hourly/current', async (req: AuthRequest, res) => {
   try {
     const result = await hourlyDrawService.getCurrentDraw(req.userId!);
+    const draw = result.draw;
     res.json({
-      draw: result.draw,
+      draw: draw
+        ? {
+            id: draw.id,
+            scheduled_at: draw.scheduled_at,
+            status: draw.status,
+            ticket_price: Number(draw.ticket_price),
+            total_pool: Number(draw.total_pool),
+            prize_pool: Number(draw.prize_pool),
+            admin_prize_pool: draw.admin_prize_pool == null ? undefined : Number(draw.admin_prize_pool),
+            house_edge_amount: Number(draw.house_edge_amount),
+            winner_user_id: draw.winner_user_id,
+            winning_ticket_number: draw.winning_ticket_number,
+            completed_at: draw.completed_at,
+          }
+        : null,
       total_entries: result.total_entries,
       user_tickets: result.user_tickets,
     });
@@ -326,6 +341,71 @@ router.get('/hourly/history', async (_req, res) => {
       total: result.total,
     });
   } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// RECENT WINS — live ticker feed
+// ============================================
+router.get('/recent-wins', async (_req, res) => {
+  try {
+    const knex = GamePlay.knex();
+    const limit = Math.min(20, parseInt((_req as any).query.limit as string) || 10);
+
+    // Recent game-play wins (payout > 0)
+    const gameWins = await knex.raw(`
+      SELECT
+        gp.id,
+        COALESCE(u.full_name, u.phone) AS name,
+        gp.game_type AS game,
+        gp.payout AS amount,
+        gp.created_at AS won_at,
+        'game' AS kind
+      FROM game_plays gp
+      JOIN users u ON u.id = gp.user_id
+      WHERE gp.payout > 0
+      ORDER BY gp.created_at DESC
+      LIMIT ?
+    `, [limit]);
+
+    // Recent hourly-draw jackpots
+    const drawWins = await knex.raw(`
+      SELECT
+        hd.id,
+        COALESCE(u.full_name, u.phone) AS name,
+        'Hourly Draw' AS game,
+        hd.prize_pool AS amount,
+        hd.completed_at AS won_at,
+        'draw' AS kind
+      FROM hourly_draws hd
+      JOIN users u ON u.id = hd.winner_user_id
+      WHERE hd.status = 'completed'
+        AND hd.winner_user_id IS NOT NULL
+      ORDER BY hd.completed_at DESC
+      LIMIT ?
+    `, [limit]);
+
+    // Merge, cast amounts to numbers, sort by won_at desc
+    const merged = [
+      ...(gameWins.rows || []),
+      ...(drawWins.rows || []),
+    ]
+      .map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        game: r.game,
+        amount: Number(r.amount),
+        won_at: r.won_at,
+        kind: r.kind,
+        is_jackpot: Number(r.amount) >= 100_000,
+      }))
+      .sort((a: any, b: any) => new Date(b.won_at).getTime() - new Date(a.won_at).getTime())
+      .slice(0, limit);
+
+    res.json({ wins: merged });
+  } catch (error: any) {
+    console.error('[RecentWins] error:', error);
     res.status(400).json({ error: error.message });
   }
 });
