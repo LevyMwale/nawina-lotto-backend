@@ -464,7 +464,7 @@ export class WalletService {
    * Core completion logic — idempotent so it can be called from polling,
    * webhooks, or manual admin completion.
    */
-  async completeDepositTransaction(txn: Transaction, userId: string): Promise<{
+  async completeDepositTransaction(txn: Transaction): Promise<{
     newBalance: number;
     invoice: {
       id: string;
@@ -475,8 +475,10 @@ export class WalletService {
     } | null;
   }> {
     return await transaction(Transaction.knex(), async (trx) => {
+      // Use the wallet_id stored on the transaction — this is the source of
+      // truth and avoids the bug where a mismatched userId was passed in.
       const wallet = await Wallet.query(trx)
-        .findOne({ user_id: userId })
+        .findById(txn.wallet_id)
         .forUpdate();
 
       if (!wallet) {
@@ -500,7 +502,7 @@ export class WalletService {
       let invoice: any = null;
       if (txn.type === 'deposit') {
         invoice = await invoiceService.generateForDeposit(trx, {
-          userId,
+          userId: wallet.user_id,
           transactionId: txn.id,
           amount: depositAmount,
         });
@@ -529,8 +531,9 @@ export class WalletService {
     // Fallback: Lipila may track by their internal identifier rather than our reference.
     if (!txn) {
       txn = await Transaction.query()
-        .findOne({ 'metadata:lipila_identifier': reference })
-        .withGraphJoined('wallet');
+        .whereRaw("metadata->>'lipila_identifier' = ?", [reference])
+        .withGraphJoined('wallet')
+        .first();
     }
 
     if (!txn) {
@@ -568,7 +571,7 @@ export class WalletService {
 
     if (lipilaStatus.status === 'completed') {
       console.log(`[WalletDepositStatus] Completing deposit — crediting wallet for userId=${userId}, amount=${txn.amount}`);
-      const result = await this.completeDepositTransaction(txn, userId);
+      const result = await this.completeDepositTransaction(txn);
       console.log(`[WalletDepositStatus] Deposit completed — newBalance=${result.newBalance}, invoice=${result.invoice?.invoice_number || 'none'}`);
       return {
         status: 'completed' as const,
@@ -621,7 +624,7 @@ export class WalletService {
       throw new Error(`Cannot complete a ${txn.status} transaction`);
     }
 
-    const result = await this.completeDepositTransaction(txn, userId);
+    const result = await this.completeDepositTransaction(txn);
     return {
       status: 'completed' as const,
       balance: result.newBalance,

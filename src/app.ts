@@ -45,6 +45,13 @@ function isOriginAllowed(origin: string | undefined): boolean {
 }
 
 app.use((req, res, next) => {
+  // Webhooks from payment gateways (Lipila) must bypass CORS origin checks.
+  // They are server-to-server and may send an Origin header from a domain
+  // not in our allowlist. Authentication is via payload, not CORS.
+  if (req.path === '/api/wallet/lipila-callback') {
+    return next();
+  }
+
   const origin = req.headers.origin;
   if (!isOriginAllowed(origin)) {
     return res.status(403).json({ error: `CORS: origin not allowed: ${origin}` });
@@ -66,6 +73,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Lipila webhooks may send form data
 
 // ✅ Database setup with SSL for production
 const knexInstance = knex({

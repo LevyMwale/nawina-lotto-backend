@@ -83,7 +83,9 @@ router.post('/lipila-callback', async (req, res) => {
     // Find the pending transaction by our reference OR Lipila's identifier
     let txn = await Transaction.query().findOne({ reference: ref });
     if (!txn) {
-      txn = await Transaction.query().findOne({ 'metadata:lipila_identifier': ref });
+      txn = await Transaction.query()
+        .whereRaw("metadata->>'lipila_identifier' = ?", [ref])
+        .first();
     }
 
     if (!txn) {
@@ -100,7 +102,7 @@ router.post('/lipila-callback', async (req, res) => {
     const isSuccess = ['success', 'completed', 'successful', 'done', 'paid'].includes(rawStatus);
 
     if (isSuccess) {
-      const result = await walletService.completeDepositTransaction(txn, txn.wallet_id);
+      const result = await walletService.completeDepositTransaction(txn);
       console.log(`[LipilaCallback] Auto-completed — txnId=${txn.id}, newBalance=${result.newBalance}`);
       return res.json({ status: 'ok', message: 'Deposit completed', balance: result.newBalance });
     }
