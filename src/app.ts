@@ -265,7 +265,11 @@ function listAvailableRoutes(): string[] {
       'GET /api/wallet/transactions',
       'POST /api/wallet/deposit',
       'POST /api/wallet/withdraw',
+      'GET /api/wallet/deposit-status/:reference',
       'POST /api/games/spin/play',
+      'POST /api/games/hourly/ticket',
+      'GET /api/games/hourly/current',
+      'GET /api/games/hourly/history',
       'POST /api/games/dice/play',
       'POST /api/games/lotto/play',
       'POST /api/games/quiz/play',
@@ -290,6 +294,10 @@ function listAvailableRoutes(): string[] {
       'POST /api/admin/transactions/:transactionId/reject',
       'POST /api/admin/users/:userId/bonus',
       'GET /api/admin/games',
+      'GET /api/admin/draws',
+      'POST /api/admin/draws/:id/run',
+      'POST /api/admin/draws/:id/cancel',
+      'PATCH /api/admin/draws/:id',
     );
   }
   return out;

@@ -3,6 +3,7 @@ import { AdminService } from '../services/admin.service';
 import { TaxService } from '../services/tax.service';
 import { PdfService } from '../services/pdf.service';
 import { WalletService } from '../services/wallet.service';
+import { HourlyDrawService } from '../services/games/hourly-draw.service';
 import { User } from '../models/User';
 import { Wallet } from '../models/Wallet';
 import { Transaction } from '../models/Transaction';
@@ -14,6 +15,7 @@ const adminService = new AdminService();
 const taxService = new TaxService();
 const pdfService = new PdfService();
 const walletService = new WalletService();
+const hourlyDrawService = new HourlyDrawService();
 
 console.log('📦 Admin routes file loaded');
 
@@ -443,6 +445,102 @@ router.get('/games', async (req, res) => {
         };
       }),
     });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// HOURLY DRAW MANAGEMENT
+// ============================================
+router.get('/draws', async (req, res) => {
+  try {
+    const limit = parseInt(str(req.query.limit)) || 50;
+    const offset = parseInt(str(req.query.offset)) || 0;
+    const status = req.query.status ? str(req.query.status) : undefined;
+
+    let query = hourlyDrawService['getDrawHistory'] ? undefined : undefined as any;
+    // We use direct model queries here for admin-level access
+    const { HourlyDraw } = await import('../models/HourlyDraw');
+    let q = HourlyDraw.query()
+      .orderBy('scheduled_at', 'desc')
+      .limit(limit)
+      .offset(offset);
+
+    if (status && status !== 'all') {
+      q = q.where({ status });
+    }
+
+    const draws = await q;
+    const total = await HourlyDraw.query().resultSize();
+
+    // Fetch winner names for completed draws
+    const winnerIds = draws
+      .filter((d: any) => d.winner_user_id)
+      .map((d: any) => d.winner_user_id);
+    const winners = winnerIds.length > 0
+      ? await User.query().select('id', 'phone', 'full_name').whereIn('id', winnerIds)
+      : [];
+    const winnerMap = new Map(winners.map((u: any) => [u.id, u]));
+
+    res.json({
+      total,
+      draws: draws.map((d: any) => {
+        const w = d.winner_user_id ? winnerMap.get(d.winner_user_id) : null;
+        return {
+          id: d.id,
+          scheduled_at: d.scheduled_at,
+          status: d.status,
+          ticket_price: Number(d.ticket_price),
+          total_pool: Number(d.total_pool),
+          prize_pool: Number(d.prize_pool),
+          house_edge_amount: Number(d.house_edge_amount),
+          admin_prize_pool: Number(d.admin_prize_pool) || null,
+          winner_user_id: d.winner_user_id,
+          winner: w
+            ? { id: w.id, phone: w.phone, full_name: w.full_name }
+            : null,
+          winning_ticket_number: d.winning_ticket_number,
+          completed_at: d.completed_at,
+          created_at: d.created_at,
+        };
+      }),
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.post('/draws/:id/run', requireRole('super_admin', 'admin'), async (req: AdminAuthRequest, res) => {
+  try {
+    const result = await hourlyDrawService.runDraw(str(req.params.id));
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.post('/draws/:id/cancel', requireRole('super_admin', 'admin'), async (req: AdminAuthRequest, res) => {
+  try {
+    const result = await hourlyDrawService.cancelDraw(str(req.params.id), req.adminId!);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.patch('/draws/:id', requireRole('super_admin', 'admin'), async (req: AdminAuthRequest, res) => {
+  try {
+    const { admin_prize_pool } = req.body;
+    if (admin_prize_pool === undefined || admin_prize_pool === null) {
+      return res.status(400).json({ error: 'admin_prize_pool is required' });
+    }
+    const amount = Number(admin_prize_pool);
+    if (isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'admin_prize_pool must be a positive number' });
+    }
+    const updated = await hourlyDrawService.setPrize(str(req.params.id), amount);
+    res.json({ success: true, draw: updated });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }

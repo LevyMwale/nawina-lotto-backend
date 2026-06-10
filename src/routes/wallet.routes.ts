@@ -150,11 +150,27 @@ router.post('/withdraw', async (req: AuthRequest, res) => {
   }
 });
 
+// GET /api/wallet/deposit-status/:reference
+router.get('/deposit-status/:reference', async (req: AuthRequest, res) => {
+  try {
+    const reference = Array.isArray(req.params.reference) ? req.params.reference[0] : req.params.reference;
+    if (!reference) {
+      return res.status(400).json({ error: 'Reference is required' });
+    }
+    const result = await walletService.getDepositStatus(reference, req.userId!);
+    res.json(result);
+  } catch (error: any) {
+    console.error('❌ Deposit status error:', error);
+    res.status(400).json({ error: error.message || 'Failed to check deposit status' });
+  }
+});
+
 console.log('✅ Wallet routes configured with endpoints:');
 console.log('   - GET  /balance');
 console.log('   - GET  /balance/:userId');
 console.log('   - GET  /transactions');
 console.log('   - POST /deposit');
 console.log('   - POST /withdraw');
+console.log('   - GET  /deposit-status/:reference');
 
 export default router;

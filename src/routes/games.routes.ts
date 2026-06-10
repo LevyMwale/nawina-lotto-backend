@@ -7,6 +7,7 @@ import { AviatorService } from '../services/games/aviator.service';
 import { QuizService } from '../services/games/quiz.service';
 import { SoccerService, type LeagueCode } from '../services/games/soccer.service';
 import { BlackjackService } from '../services/games/blackjack.service';
+import { HourlyDrawService } from '../services/games/hourly-draw.service';
 import { GamePlay } from '../models/GamePlay';
 
 const router = Router();
@@ -22,6 +23,7 @@ const aviatorService = new AviatorService();
 const quizService = new QuizService();
 const soccerService = new SoccerService();
 const blackjackService = new BlackjackService();
+const hourlyDrawService = new HourlyDrawService();
 
 // ============================================
 // SPIN THE WHEEL
@@ -269,6 +271,58 @@ router.get('/history', async (req: AuthRequest, res) => {
         result: play.result,
         created_at: play.created_at,
       })),
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// HOURLY DRAW (RAFFLE)
+// ============================================
+router.post('/hourly/ticket', async (req: AuthRequest, res) => {
+  try {
+    const { draw_id, count } = req.body;
+    if (!draw_id) {
+      return res.status(400).json({ error: 'draw_id is required' });
+    }
+    const ticketCount = Math.max(1, Math.min(100, parseInt(count) || 1));
+    const result = await hourlyDrawService.buyTicket(req.userId!, draw_id, ticketCount);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/hourly/current', async (req: AuthRequest, res) => {
+  try {
+    const result = await hourlyDrawService.getCurrentDraw(req.userId!);
+    res.json({
+      draw: result.draw,
+      total_entries: result.total_entries,
+      user_tickets: result.user_tickets,
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/hourly/history', async (_req, res) => {
+  try {
+    const result = await hourlyDrawService.getDrawHistory();
+    res.json({
+      draws: result.draws.map((d) => ({
+        id: d.id,
+        scheduled_at: d.scheduled_at,
+        status: d.status,
+        ticket_price: Number(d.ticket_price),
+        total_pool: Number(d.total_pool),
+        prize_pool: Number(d.prize_pool),
+        winner_user_id: d.winner_user_id,
+        winning_ticket_number: d.winning_ticket_number,
+        completed_at: d.completed_at,
+      })),
+      total: result.total,
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message });

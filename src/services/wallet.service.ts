@@ -3,10 +3,12 @@ import { Transaction } from '../models/Transaction';
 import { transaction } from 'objection';
 import { v4 as uuidv4 } from 'uuid';
 import { InvoiceService } from './invoice.service';
+import { LipilaService } from './lipila.service';
 
 // Single shared instance — InvoiceService is stateless and we want
 // the same in-flight request to use one allocation path.
 const invoiceService = new InvoiceService();
+const lipilaService = new LipilaService();
 
 export class WalletService {
   async getBalance(userId: string) {
@@ -141,6 +143,52 @@ export class WalletService {
       throw new Error('Minimum deposit is K2');
     }
 
+    // Lipila deposit flow: create pending transaction, initiate via gateway
+    if (method === 'lipila') {
+      if (!details?.mobileNumber) {
+        throw new Error('Phone number is required for Lipila deposits');
+      }
+
+      const { success, reference, message } = await lipilaService.initiateDeposit(
+        depositAmount,
+        details.mobileNumber,
+        userId,
+      );
+
+      if (!success) {
+        throw new Error(message || 'Lipila deposit initiation failed');
+      }
+
+      const wallet = await Wallet.query().findOne({ user_id: userId });
+      if (!wallet) {
+        throw new Error('Wallet not found');
+      }
+
+      const txn = await Transaction.query().insert({
+        wallet_id: wallet.id,
+        type: 'deposit',
+        amount: depositAmount,
+        balance_before: Number(wallet.balance),
+        balance_after: Number(wallet.balance),
+        status: 'pending',
+        reference,
+        metadata: {
+          payment_method: 'lipila',
+          lipila_reference: reference,
+          mobile_number: details.mobileNumber,
+        },
+      });
+
+      return {
+        success: true,
+        pending: true,
+        balance: Number(wallet.balance),
+        transactionId: txn.id,
+        reference,
+        message,
+      };
+    }
+
     // TODO: In production, integrate with actual payment gateway here
     // const paymentResult = await this.processPaymentGateway(method, amount, details);
     // if (!paymentResult.success) {
@@ -180,6 +228,64 @@ export class WalletService {
     const balanceInfo = await this.getBalance(userId);
     if (balanceInfo.available < amount) {
       throw new Error('Insufficient balance');
+    }
+
+    // Lipila withdrawal flow: create pending transaction, initiate payout
+    if (method === 'lipila') {
+      if (!details?.mobileNumber) {
+        throw new Error('Phone number is required for Lipila withdrawals');
+      }
+
+      const { success, reference, message } = await lipilaService.initiateWithdrawal(
+        amount,
+        details.mobileNumber,
+        userId,
+      );
+
+      if (!success) {
+        throw new Error(message || 'Lipila withdrawal initiation failed');
+      }
+
+      return await transaction(Wallet.knex(), async (trx) => {
+        const wallet = await Wallet.query(trx)
+          .findOne({ user_id: userId })
+          .forUpdate();
+
+        if (!wallet) {
+          throw new Error('Wallet not found');
+        }
+
+        const newBalance = Number(wallet.balance) - amount;
+
+        await Wallet.query(trx)
+          .patch({ balance: newBalance })
+          .where({ id: wallet.id });
+
+        const txn = await Transaction.query(trx).insert({
+          wallet_id: wallet.id,
+          type: 'withdrawal',
+          amount: -amount,
+          balance_before: Number(wallet.balance),
+          balance_after: newBalance,
+          status: 'pending',
+          reference,
+          metadata: {
+            withdrawal_method: 'lipila',
+            lipila_reference: reference,
+            mobile_number: details.mobileNumber,
+            withdrawal: true,
+          },
+        });
+
+        return {
+          success: true,
+          pending: true,
+          balance: newBalance,
+          transactionId: txn.id,
+          reference,
+          message,
+        };
+      });
     }
 
     // TODO: In production, integrate with actual payment gateway here
@@ -341,6 +447,116 @@ export class WalletService {
 
       return { transaction_id: transactionId, status: 'cancelled', new_balance: newBalance };
     });
+  }
+
+  /**
+   * Poll the status of a Lipila deposit and complete it if confirmed.
+   * Returns the current status, and if completed, the new balance + invoice.
+   */
+  async getDepositStatus(reference: string, userId: string) {
+    const txn = await Transaction.query()
+      .findOne({ reference })
+      .withGraphJoined('wallet');
+
+    if (!txn) {
+      throw new Error('Transaction not found');
+    }
+
+    // Already completed — idempotent return
+    if (txn.status === 'completed') {
+      const invoice = txn.invoice
+        ? {
+            id: txn.invoice.id,
+            invoice_number: txn.invoice.invoice_number,
+            amount: Number(txn.invoice.amount),
+            excise_duty: Number(txn.invoice.excise_duty),
+            net_amount: Number(txn.invoice.net_amount),
+          }
+        : null;
+      return {
+        status: 'completed' as const,
+        balance: Number(txn.wallet?.balance ?? 0),
+        invoice,
+      };
+    }
+
+    if (txn.status === 'failed' || txn.status === 'cancelled') {
+      return { status: txn.status as 'failed' | 'cancelled' };
+    }
+
+    // Check with Lipila
+    const lipilaStatus = await lipilaService.checkStatus(reference);
+
+    if (lipilaStatus.status === 'completed') {
+      // Atomically credit wallet, update transaction, generate invoice
+      const result = await transaction(Transaction.knex(), async (trx) => {
+        const wallet = await Wallet.query(trx)
+          .findOne({ user_id: userId })
+          .forUpdate();
+
+        if (!wallet) {
+          throw new Error('Wallet not found');
+        }
+
+        const depositAmount = Number(txn.amount);
+        const newBalance = Number(wallet.balance) + depositAmount;
+
+        await Wallet.query(trx)
+          .patch({ balance: newBalance })
+          .where({ id: wallet.id });
+
+        await Transaction.query(trx)
+          .patch({
+            status: 'completed',
+            balance_after: newBalance,
+          })
+          .where({ id: txn.id });
+
+        let invoice: any = null;
+        if (txn.type === 'deposit') {
+          invoice = await invoiceService.generateForDeposit(trx, {
+            userId,
+            transactionId: txn.id,
+            amount: depositAmount,
+          });
+        }
+
+        return {
+          newBalance,
+          invoice: invoice
+            ? {
+                id: invoice.id,
+                invoice_number: invoice.invoice_number,
+                amount: Number(invoice.amount),
+                excise_duty: Number(invoice.excise_duty),
+                net_amount: Number(invoice.net_amount),
+              }
+            : null,
+        };
+      });
+
+      return {
+        status: 'completed' as const,
+        balance: result.newBalance,
+        invoice: result.invoice,
+      };
+    }
+
+    if (lipilaStatus.status === 'failed') {
+      await Transaction.query()
+        .patch({ status: 'failed' })
+        .where({ id: txn.id });
+
+      return {
+        status: 'failed' as const,
+        message: lipilaStatus.message,
+      };
+    }
+
+    return {
+      status: 'pending' as const,
+      message: lipilaStatus.message,
+    };
   }
 
   // OPTIONAL: Payment gateway integration helper methods
