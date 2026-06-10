@@ -460,10 +460,78 @@ export class WalletService {
    * Poll the status of a Lipila deposit and complete it if confirmed.
    * Returns the current status, and if completed, the new balance + invoice.
    */
+  /**
+   * Core completion logic — idempotent so it can be called from polling,
+   * webhooks, or manual admin completion.
+   */
+  async completeDepositTransaction(txn: Transaction, userId: string): Promise<{
+    newBalance: number;
+    invoice: {
+      id: string;
+      invoice_number: string;
+      amount: number;
+      excise_duty: number;
+      net_amount: number;
+    } | null;
+  }> {
+    return await transaction(Transaction.knex(), async (trx) => {
+      const wallet = await Wallet.query(trx)
+        .findOne({ user_id: userId })
+        .forUpdate();
+
+      if (!wallet) {
+        throw new Error('Wallet not found');
+      }
+
+      const depositAmount = Number(txn.amount);
+      const newBalance = Number(wallet.balance) + depositAmount;
+
+      await Wallet.query(trx)
+        .patch({ balance: newBalance })
+        .where({ id: wallet.id });
+
+      await Transaction.query(trx)
+        .patch({
+          status: 'completed',
+          balance_after: newBalance,
+        })
+        .where({ id: txn.id });
+
+      let invoice: any = null;
+      if (txn.type === 'deposit') {
+        invoice = await invoiceService.generateForDeposit(trx, {
+          userId,
+          transactionId: txn.id,
+          amount: depositAmount,
+        });
+      }
+
+      return {
+        newBalance,
+        invoice: invoice
+          ? {
+              id: invoice.id,
+              invoice_number: invoice.invoice_number,
+              amount: Number(invoice.amount),
+              excise_duty: Number(invoice.excise_duty),
+              net_amount: Number(invoice.net_amount),
+            }
+          : null,
+      };
+    });
+  }
+
   async getDepositStatus(reference: string, userId: string) {
-    const txn = await Transaction.query()
+    let txn = await Transaction.query()
       .findOne({ reference })
       .withGraphJoined('wallet');
+
+    // Fallback: Lipila may track by their internal identifier rather than our reference.
+    if (!txn) {
+      txn = await Transaction.query()
+        .findOne({ 'metadata:lipila_identifier': reference })
+        .withGraphJoined('wallet');
+    }
 
     if (!txn) {
       throw new Error('Transaction not found');
@@ -472,19 +540,11 @@ export class WalletService {
     // Already completed — idempotent return
     if (txn.status === 'completed') {
       console.log(`[WalletDepositStatus] Transaction already completed — txnId=${txn.id}`);
-      const invoice = txn.invoice
-        ? {
-            id: txn.invoice.id,
-            invoice_number: txn.invoice.invoice_number,
-            amount: Number(txn.invoice.amount),
-            excise_duty: Number(txn.invoice.excise_duty),
-            net_amount: Number(txn.invoice.net_amount),
-          }
-        : null;
+      const freshWallet = await Wallet.query().findOne({ user_id: userId });
       return {
         status: 'completed' as const,
-        balance: Number(txn.wallet?.balance ?? 0),
-        invoice,
+        balance: Number(freshWallet?.balance ?? 0),
+        invoice: null,
       };
     }
 
@@ -492,60 +552,23 @@ export class WalletService {
       return { status: txn.status as 'failed' | 'cancelled' };
     }
 
-    // Check with Lipila
-    console.log(`[WalletDepositStatus] Checking Lipila status — reference=${reference}, currentTxnStatus=${txn.status}`);
-    const lipilaStatus = await lipilaService.checkStatus(reference);
-    console.log(`[WalletDepositStatus] Lipila responded — status=${lipilaStatus.status}, message=${lipilaStatus.message}`);
+    // Check with Lipila (by our reference first, then by their identifier if stored)
+    const lipilaRef = reference;
+    console.log(`[WalletDepositStatus] Checking Lipila status — reference=${lipilaRef}, currentTxnStatus=${txn.status}`);
+    let lipilaStatus = await lipilaService.checkStatus(lipilaRef);
+    console.log(`[WalletDepositStatus] Lipila responded — status=${lipilaStatus.status}, message=${lipilaStatus.message}, http=${lipilaStatus.httpStatus}`);
+
+    // If our reference returned 404, try Lipila's internal identifier
+    if (lipilaStatus.httpStatus === 404 && txn.metadata?.lipila_identifier) {
+      const altRef = txn.metadata.lipila_identifier;
+      console.log(`[WalletDepositStatus] Trying lipila_identifier instead — ${altRef}`);
+      lipilaStatus = await lipilaService.checkStatus(altRef);
+      console.log(`[WalletDepositStatus] Alt check responded — status=${lipilaStatus.status}, message=${lipilaStatus.message}, http=${lipilaStatus.httpStatus}`);
+    }
 
     if (lipilaStatus.status === 'completed') {
-      // Atomically credit wallet, update transaction, generate invoice
       console.log(`[WalletDepositStatus] Completing deposit — crediting wallet for userId=${userId}, amount=${txn.amount}`);
-      const result = await transaction(Transaction.knex(), async (trx) => {
-        const wallet = await Wallet.query(trx)
-          .findOne({ user_id: userId })
-          .forUpdate();
-
-        if (!wallet) {
-          throw new Error('Wallet not found');
-        }
-
-        const depositAmount = Number(txn.amount);
-        const newBalance = Number(wallet.balance) + depositAmount;
-
-        await Wallet.query(trx)
-          .patch({ balance: newBalance })
-          .where({ id: wallet.id });
-
-        await Transaction.query(trx)
-          .patch({
-            status: 'completed',
-            balance_after: newBalance,
-          })
-          .where({ id: txn.id });
-
-        let invoice: any = null;
-        if (txn.type === 'deposit') {
-          invoice = await invoiceService.generateForDeposit(trx, {
-            userId,
-            transactionId: txn.id,
-            amount: depositAmount,
-          });
-        }
-
-        return {
-          newBalance,
-          invoice: invoice
-            ? {
-                id: invoice.id,
-                invoice_number: invoice.invoice_number,
-                amount: Number(invoice.amount),
-                excise_duty: Number(invoice.excise_duty),
-                net_amount: Number(invoice.net_amount),
-              }
-            : null,
-        };
-      });
-
+      const result = await this.completeDepositTransaction(txn, userId);
       console.log(`[WalletDepositStatus] Deposit completed — newBalance=${result.newBalance}, invoice=${result.invoice?.invoice_number || 'none'}`);
       return {
         status: 'completed' as const,
@@ -570,6 +593,40 @@ export class WalletService {
     return {
       status: 'pending' as const,
       message: lipilaStatus.message,
+    };
+  }
+
+  /**
+   * Manually complete a pending deposit (used by admin or "I've paid" user button).
+   */
+  async forceCompleteDeposit(reference: string, userId: string) {
+    const txn = await Transaction.query()
+      .findOne({ reference })
+      .withGraphJoined('wallet');
+
+    if (!txn) {
+      throw new Error('Transaction not found');
+    }
+
+    if (txn.status === 'completed') {
+      const freshWallet = await Wallet.query().findOne({ user_id: userId });
+      return {
+        status: 'completed' as const,
+        balance: Number(freshWallet?.balance ?? 0),
+        message: 'Deposit was already completed',
+      };
+    }
+
+    if (txn.status === 'failed' || txn.status === 'cancelled') {
+      throw new Error(`Cannot complete a ${txn.status} transaction`);
+    }
+
+    const result = await this.completeDepositTransaction(txn, userId);
+    return {
+      status: 'completed' as const,
+      balance: result.newBalance,
+      invoice: result.invoice,
+      message: 'Deposit completed manually',
     };
   }
 

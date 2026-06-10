@@ -191,10 +191,14 @@ export class LipilaService {
    * assumed to be GET /api/v1/collections/mobile-money/{referenceId}
    * based on common REST conventions. Update this if the docs specify
    * a different URL.
+   *
+   * CRITICAL: A 404 on the status endpoint does NOT mean the deposit
+   * failed — it may mean Lipila hasn't processed it yet. We treat 404
+   * as "still pending" so we don't wrongly mark a valid deposit as failed.
    */
   async checkStatus(
     reference: string
-  ): Promise<{ status: 'pending' | 'completed' | 'failed'; message?: string }> {
+  ): Promise<{ status: 'pending' | 'completed' | 'failed'; message?: string; httpStatus?: number }> {
     const config = getConfig();
 
     try {
@@ -207,8 +211,17 @@ export class LipilaService {
 
       if (!response.ok) {
         const msg = data?.message || data?.error || `Lipila HTTP ${response.status}`;
-        console.error('[Lipila] checkStatus failed:', msg);
-        return { status: 'failed', message: msg };
+        console.warn(`[Lipila] checkStatus HTTP ${response.status} — treating as pending, not failed`);
+        // 404 = reference not found yet (not failed)
+        // 401 = auth issue (should be fixed, but don't mark txn failed)
+        // 5xx = transient server error
+        // All of these should keep the transaction as pending so polling
+        // can retry later or the webhook can complete it.
+        return {
+          status: 'pending',
+          message: msg,
+          httpStatus: response.status,
+        };
       }
 
       // Lipila returns status as "Pending", "Failed", etc.
@@ -224,10 +237,12 @@ export class LipilaService {
       return {
         status,
         message: data?.message || data?.description || `Status: ${rawStatus}`,
+        httpStatus: response.status,
       };
     } catch (error: any) {
       console.error('[Lipila] checkStatus exception:', error);
-      return { status: 'failed', message: error.message || 'Status check failed' };
+      // Network / timeout errors keep the deposit pending so polling retries
+      return { status: 'pending', message: error.message || 'Status check failed' };
     }
   }
 

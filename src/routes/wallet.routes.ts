@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { WalletService } from '../services/wallet.service';
+import { Transaction } from '../models/Transaction';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -62,6 +63,60 @@ router.get('/lipila-health', async (_req, res) => {
       status: 'error',
       message: error.message || 'Health check failed',
     });
+  }
+});
+
+// ── Lipila webhook callback (NO AUTH) ──
+// Lipila calls this when a mobile-money collection changes state.
+// We look up the pending transaction by reference or identifier and complete it.
+// POST /api/wallet/lipila-callback
+router.post('/lipila-callback', async (req, res) => {
+  try {
+    const { referenceId, identifier, status: lipilaRawStatus, amount } = req.body || {};
+    const ref = referenceId || identifier || '';
+    console.log(`[LipilaCallback] Received — ref=${ref}, status=${lipilaRawStatus}, amount=${amount}`);
+
+    if (!ref) {
+      return res.status(400).json({ error: 'Missing referenceId or identifier' });
+    }
+
+    // Find the pending transaction by our reference OR Lipila's identifier
+    let txn = await Transaction.query().findOne({ reference: ref });
+    if (!txn) {
+      txn = await Transaction.query().findOne({ 'metadata:lipila_identifier': ref });
+    }
+
+    if (!txn) {
+      console.warn(`[LipilaCallback] No pending transaction found for ref=${ref}`);
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    if (txn.status === 'completed') {
+      console.log(`[LipilaCallback] Transaction already completed — txnId=${txn.id}`);
+      return res.json({ status: 'ok', message: 'Already completed' });
+    }
+
+    const rawStatus = String(lipilaRawStatus || 'pending').toLowerCase();
+    const isSuccess = ['success', 'completed', 'successful', 'done', 'paid'].includes(rawStatus);
+
+    if (isSuccess) {
+      const result = await walletService.completeDepositTransaction(txn, txn.wallet_id);
+      console.log(`[LipilaCallback] Auto-completed — txnId=${txn.id}, newBalance=${result.newBalance}`);
+      return res.json({ status: 'ok', message: 'Deposit completed', balance: result.newBalance });
+    }
+
+    const isFailure = ['failed', 'failure', 'error', 'rejected', 'cancelled'].includes(rawStatus);
+    if (isFailure) {
+      await Transaction.query().patch({ status: 'failed' }).where({ id: txn.id });
+      console.log(`[LipilaCallback] Marked failed — txnId=${txn.id}`);
+      return res.json({ status: 'ok', message: 'Marked as failed' });
+    }
+
+    console.log(`[LipilaCallback] Still pending — txnId=${txn.id}, rawStatus=${rawStatus}`);
+    return res.json({ status: 'ok', message: 'Still pending' });
+  } catch (error: any) {
+    console.error('[LipilaCallback] Exception:', error);
+    return res.status(500).json({ error: error.message || 'Webhook processing failed' });
   }
 });
 
@@ -228,6 +283,23 @@ router.get('/deposit-status/:reference', async (req: AuthRequest, res) => {
   }
 });
 
+// POST /api/wallet/force-complete-deposit/:reference
+// Allows the user (or admin) to manually mark a pending deposit as completed
+// when Lipila polling/webhooks are unreliable.
+router.post('/force-complete-deposit/:reference', async (req: AuthRequest, res) => {
+  try {
+    const reference = Array.isArray(req.params.reference) ? req.params.reference[0] : req.params.reference;
+    if (!reference) {
+      return res.status(400).json({ error: 'Reference is required' });
+    }
+    const result = await walletService.forceCompleteDeposit(reference, req.userId!);
+    res.json(result);
+  } catch (error: any) {
+    console.error('❌ Force complete deposit error:', error);
+    res.status(400).json({ error: error.message || 'Failed to complete deposit' });
+  }
+});
+
 console.log('✅ Wallet routes configured with endpoints:');
 console.log('   - GET  /balance');
 console.log('   - GET  /balance/:userId');
@@ -235,6 +307,8 @@ console.log('   - GET  /transactions');
 console.log('   - POST /deposit');
 console.log('   - POST /withdraw');
 console.log('   - GET  /deposit-status/:reference');
+console.log('   - POST /force-complete-deposit/:reference');
+console.log('   - POST /lipila-callback');
 console.log('   - GET  /lipila-health');
 
 export default router;
