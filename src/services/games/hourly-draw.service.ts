@@ -352,15 +352,17 @@ export class HourlyDrawService {
     }
 
     if (!draw) {
-      // Fallback: any open draw
+      // Fallback: future open draw only (don't show stale past draws)
       draw = await HourlyDraw.query()
         .where('status', 'open')
+        .where('scheduled_at', '>', new Date().toISOString())
         .orderBy('scheduled_at', 'asc')
         .first();
     }
 
     if (!draw) {
-      return { draw: null, total_entries: 0, user_tickets: [] };
+      // Nothing at all — auto-create the upcoming draw so the UI never breaks
+      draw = await this.createNextDraw();
     }
 
     const totalEntries = await HourlyDrawEntry.query()
