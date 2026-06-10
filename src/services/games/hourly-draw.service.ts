@@ -26,40 +26,38 @@ const DRAW_TIMES = [8, 18]; // hours of the day (08:00 and 18:00)
 const DEFAULT_TICKET_PRICE = 2;
 const POOL_PERCENTAGE = 0.80;
 
-function getNextDrawTime(now = new Date()): Date {
-  const currentHour = now.getHours();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+/** All draw-time helpers use UTC so behaviour is identical on Render (UTC),
+ *  local dev (CAT), and any other timezone. */
 
-  // Find the next draw time today
+function getNextDrawTime(now = new Date()): Date {
+  const currentHour = now.getUTCHours();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
   const nextToday = DRAW_TIMES.find((h) => h > currentHour);
   if (nextToday !== undefined) {
     return new Date(today.getTime() + nextToday * 60 * 60 * 1000);
   }
 
-  // All draws for today have passed — go to first draw tomorrow
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
   return new Date(tomorrow.getTime() + DRAW_TIMES[0] * 60 * 60 * 1000);
 }
 
 function getCurrentOrPreviousDrawTime(now = new Date()): Date {
-  const currentHour = now.getHours();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const currentHour = now.getUTCHours();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-  // Find the most recent draw time that has already passed or is now
   const passed = DRAW_TIMES.filter((h) => h <= currentHour);
   if (passed.length > 0) {
     const hour = passed[passed.length - 1];
     return new Date(today.getTime() + hour * 60 * 60 * 1000);
   }
 
-  // No draw passed yet today — the most recent draw was yesterday evening (18:00)
   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
   return new Date(yesterday.getTime() + DRAW_TIMES[1] * 60 * 60 * 1000);
 }
 
-/** Helper: checks whether a Date falls on one of the valid draw hours (08:00 or 18:00). */
 function isValidDrawTime(d: Date): boolean {
-  return DRAW_TIMES.includes(d.getHours());
+  return DRAW_TIMES.includes(d.getUTCHours());
 }
 
 export class HourlyDrawService {
@@ -82,9 +80,7 @@ export class HourlyDrawService {
       }
     }
 
-    const existing = await HourlyDraw.query()
-      .where('scheduled_at', nextTime.toISOString())
-      .first();
+    const existing = await this.findDrawAt(nextTime);
 
     if (existing) {
       return existing;
@@ -98,6 +94,20 @@ export class HourlyDrawService {
       prize_pool: 0,
       house_edge_amount: 0,
     });
+  }
+
+  /**
+   * Find a draw within ±1 minute of a target time. Avoids brittle exact-string
+   * matching which can break across timezone shifts or Knex/Postgres rounding.
+   */
+  private async findDrawAt(target: Date): Promise<HourlyDraw | null> {
+    const start = new Date(target.getTime() - 60 * 1000);
+    const end = new Date(target.getTime() + 60 * 1000);
+    return (await HourlyDraw.query()
+      .where('scheduled_at', '>=', start.toISOString())
+      .where('scheduled_at', '<=', end.toISOString())
+      .where('status', 'open')
+      .first()) || null;
   }
 
   /**
@@ -356,7 +366,27 @@ export class HourlyDrawService {
   }
 
   /**
+   * One-time cleanup: delete any draws that are not at valid 08:00 / 18:00 UTC.
+   * Call this on server boot before seeding draws.
+   */
+  async cleanupStaleDraws(): Promise<number> {
+    const allOpen = await HourlyDraw.query().where('status', 'open');
+    let removed = 0;
+    for (const d of allOpen) {
+      const scheduled = new Date(d.scheduled_at);
+      if (!isValidDrawTime(scheduled)) {
+        console.log(`[DrawCleanup] Removing stale draw ${d.id} @ ${d.scheduled_at}`);
+        await HourlyDraw.query().deleteById(d.id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
+  /**
    * Get the current open draw (the upcoming 08:00 or 18:00 draw).
+   * Uses a ±1-minute window around the target time to avoid
+   * millisecond-level timezone / string-mismatch bugs.
    */
   async getCurrentDraw(userId?: string): Promise<{
     draw: HourlyDraw | null;
@@ -367,23 +397,13 @@ export class HourlyDrawService {
     const currentOrPrev = getCurrentOrPreviousDrawTime(now);
     const next = getNextDrawTime(now);
 
-    // Prefer the upcoming draw, but if it doesn't exist yet, show the most recent
-    let draw = await HourlyDraw.query()
-      .where('scheduled_at', next.toISOString())
-      .where('status', 'open')
-      .first();
-
+    // Prefer the upcoming draw
+    let draw = await this.findDrawAt(next);
     if (!draw) {
-      draw = await HourlyDraw.query()
-        .where('scheduled_at', currentOrPrev.toISOString())
-        .where('status', 'open')
-        .first();
+      draw = await this.findDrawAt(currentOrPrev);
     }
 
     if (!draw) {
-      // Nothing at all — auto-create the upcoming draw so the UI never breaks.
-      // Do NOT fall back to any future open draw: stale draws created at wrong
-      // times (e.g. 10:00) must never surface in the UI.
       draw = await this.createNextDraw();
     }
 

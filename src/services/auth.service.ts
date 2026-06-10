@@ -5,7 +5,7 @@ import { Wallet } from '../models/Wallet';
 import { transaction } from 'objection';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const JWT_EXPIRES_IN = '7d';
+const JWT_EXPIRES_IN = '40m';
 
 export class AuthService {
   // Normalize Zambian phone to +260XXXXXXXXX

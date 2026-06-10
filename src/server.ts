@@ -32,8 +32,15 @@ if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
 // needs a new table before the migration has finished (or even
 // started) and surface a "relation does not exist" error to the user.
 readyPromise.then(() => {
-  // ── Daily Draw Cron (08:00 and 18:00) ──
+  // ── Daily Draw Cron (08:00 and 18:00 UTC) ──
   const hourlyDrawService = new HourlyDrawService();
+
+  // Clean up stale draws from old code / wrong timezones before seeding
+  hourlyDrawService.cleanupStaleDraws().then((removed) => {
+    if (removed > 0) console.log(`🧹 Cleaned up ${removed} stale draw(s)`);
+  }).catch((err) => {
+    console.error('[cron] Stale-draw cleanup failed:', err);
+  });
 
   // Seed the current or most-recent draw on boot (in case the server was down)
   hourlyDrawService.seedCurrentDraw().then((draw) => {
