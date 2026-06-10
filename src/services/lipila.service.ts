@@ -28,11 +28,22 @@ interface LipilaConfig {
 
 function getConfig(): LipilaConfig {
   const apiKey = process.env.LIPILA_API_KEY || '';
-  const baseUrl = (process.env.LIPILA_BASE_URL || 'https://api.lipila.dev').replace(/\/$/, '');
+  // Belt-and-braces: if the env var points at the dashboard/login site instead
+  // of the API endpoint, calls will fail with 405. The user explicitly gave us
+  // api.lipila.dev — treat that as the canonical API base.
+  const envBase = (process.env.LIPILA_BASE_URL || '').replace(/\/$/, '');
+  const baseUrl = envBase || 'https://api.lipila.dev';
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
 
   if (!apiKey) {
     console.warn('[Lipila] Missing LIPILA_API_KEY. Live calls will fail.');
+  }
+  if (baseUrl.includes('dashboard') || baseUrl.includes('lipila.io')) {
+    console.error(
+      `[Lipila] WARN: base URL looks like the dashboard site (${baseUrl}), not the API endpoint. ` +
+      `Lipila collections will fail with 405. Delete LIPILA_BASE_URL from Render env vars ` +
+      `or set it to https://api.lipila.dev`
+    );
   }
 
   return { apiKey, baseUrl, appUrl };
