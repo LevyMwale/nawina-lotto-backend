@@ -71,7 +71,7 @@ router.post('/dice/play', async (req: AuthRequest, res) => {
 // ============================================
 router.post('/lotto/play', async (req: AuthRequest, res) => {
   try {
-    const { variant, numbers } = req.body;
+    const { variant, numbers, stake } = req.body;
 
     if (!variant || !['pick3', 'pick5'].includes(variant)) {
       return res.status(400).json({ error: 'Valid variant is required (pick3 or pick5)' });
@@ -81,7 +81,7 @@ router.post('/lotto/play', async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Numbers must be an array' });
     }
 
-    const result = await lottoService.play(req.userId!, { variant, numbers });
+    const result = await lottoService.play(req.userId!, { variant, numbers, stake });
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });

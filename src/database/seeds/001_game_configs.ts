@@ -20,7 +20,7 @@ export async function seed(knex: Knex): Promise<void> {
         max_daily_win_per_user: 10000,
       }),
       min_stake: 2,
-      max_stake: 100,
+      max_stake: 10000,
       is_active: true,
     },
     {
@@ -34,7 +34,7 @@ export async function seed(knex: Knex): Promise<void> {
         max_payout: 600,
       }),
       min_stake: 2,
-      max_stake: 100,
+      max_stake: 10000,
       is_active: true,
     },
     {
@@ -45,10 +45,10 @@ export async function seed(knex: Knex): Promise<void> {
         match_1: { probability: 0.243, multiplier: 1 },
       }),
       payout_config: JSON.stringify({
-        jackpot: 5000,
+        max_payout: 500000,
       }),
       min_stake: 2,
-      max_stake: 2,
+      max_stake: 10000,
       is_active: true,
     },
     {
@@ -60,10 +60,10 @@ export async function seed(knex: Knex): Promise<void> {
         match_2: { probability: 0.132, multiplier: 2.5 },
       }),
       payout_config: JSON.stringify({
-        jackpot: 100000,
+        max_payout: 5000000,
       }),
       min_stake: 2,
-      max_stake: 2,
+      max_stake: 10000,
       is_active: true,
     },
     {
@@ -75,7 +75,7 @@ export async function seed(knex: Knex): Promise<void> {
       }),
       payout_config: JSON.stringify({ max_payout: 10000 }),
       min_stake: 2,
-      max_stake: 100,
+      max_stake: 10000,
       is_active: true,
     },
   ]);

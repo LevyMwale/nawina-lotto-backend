@@ -2,6 +2,7 @@ import { transaction } from 'objection';
 import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
+import { GameConfig } from '../../models/GameConfig';
 import { HousePoolService } from './house-pool.service';
 
 type LottoVariant = 'pick3' | 'pick5';
@@ -9,40 +10,35 @@ type LottoVariant = 'pick3' | 'pick5';
 interface LottoBet {
   variant: LottoVariant;
   numbers: number[];
+  stake: number;
 }
 
-// Add proper type definition for payouts
 interface LottoVariantConfig {
   count: number;
   range: [number, number];
-  jackpot: number;
-  payouts: Record<number, number>;  // This allows any number as key
-  stake: number;
+  // Multipliers applied to stake for each match count
+  multipliers: Record<number, number>;
 }
 
 const LOTTO_CONFIG: Record<LottoVariant, LottoVariantConfig> = {
   pick3: {
     count: 3,
     range: [0, 9],
-    jackpot: 5000,
-    payouts: {
-      3: 5000,  // Match all 3
-      2: 100,   // Match 2
-      1: 10,    // Match 1
+    multipliers: {
+      3: 500,   // 500× stake
+      2: 10,    // 10× stake
+      1: 1,     // 1× stake (break-even)
     },
-    stake: 2,
   },
   pick5: {
     count: 5,
     range: [1, 50],
-    jackpot: 100000,
-    payouts: {
-      5: 100000, // Match all 5
-      4: 5000,   // Match 4
-      3: 500,    // Match 3
-      2: 50,     // Match 2
+    multipliers: {
+      5: 5000,  // 5000× stake
+      4: 250,   // 250× stake
+      3: 25,    // 25× stake
+      2: 2.5,   // 2.5× stake
     },
-    stake: 2,
   },
 };
 
@@ -62,7 +58,19 @@ export class LottoService {
    */
   async play(userId: string, bet: LottoBet) {
     const config = LOTTO_CONFIG[bet.variant];
-    const stake = config.stake;
+    const stake = Number(bet.stake) || 2;
+
+    // Validate stake against game config
+    const dbConfig = await GameConfig.query()
+      .findOne({ game_type: `lotto_${bet.variant}`, is_active: true });
+    const minStake = Number(dbConfig?.min_stake) || 2;
+    const maxStake = Number(dbConfig?.max_stake) || 10000;
+    if (stake < minStake) {
+      throw new Error(`Minimum stake is K${minStake}`);
+    }
+    if (stake > maxStake) {
+      throw new Error(`Maximum stake is K${maxStake}`);
+    }
 
     // Validate numbers
     this.validateNumbers(bet.numbers, bet.variant);
@@ -72,14 +80,16 @@ export class LottoService {
       await this.walletService.deduct(userId, stake, 'bet', {
         game_type: `lotto_${bet.variant}`,
         numbers: bet.numbers,
+        stake,
       });
 
       // 2. Draw winning numbers
       const { seed, winningNumbers } = this.drawNumbers(bet.variant);
 
-      // 3. Calculate matches and payout
+      // 3. Calculate matches and payout (proportional to stake)
       const matches = this.countMatches(bet.numbers, winningNumbers);
-      let payout = config.payouts[matches] || 0;  // This will now work
+      const multiplier = config.multipliers[matches] || 0;
+      let payout = round2(stake * multiplier);
 
       // 3b. Global house pool enforcement
       const pool = await this.housePoolService.getPoolStatus();
@@ -93,6 +103,8 @@ export class LottoService {
         await this.walletService.credit(userId, payout, 'win', {
           game_type: `lotto_${bet.variant}`,
           matches,
+          stake,
+          multiplier,
         });
       }
 
@@ -101,11 +113,12 @@ export class LottoService {
         user_id: userId,
         game_type: `lotto_${bet.variant}`,
         stake,
-        bet_data: { numbers: bet.numbers },
+        bet_data: { numbers: bet.numbers, stake },
         result: {
           winning_numbers: winningNumbers,
           user_numbers: bet.numbers,
           matches,
+          multiplier,
         },
         payout,
         rng_seed: seed,
@@ -183,4 +196,8 @@ export class LottoService {
     const winningSet = new Set(winningNumbers);
     return userNumbers.filter(num => winningSet.has(num)).length;
   }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }

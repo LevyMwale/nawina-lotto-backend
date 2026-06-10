@@ -23,7 +23,7 @@ interface AviatorConfig {
 // few hits that do land feel like a hustle.
 const DEFAULT_AVIATOR_CONFIG: AviatorConfig = {
   minStake: 2,
-  maxStake: 100,
+  maxStake: 10000,
   crashCurve: {
     ranges: [
       { min: 1.00, max: 1.50, probability: 0.50 },   // 50% crash early (was 40%)

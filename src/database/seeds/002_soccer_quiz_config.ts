@@ -25,7 +25,7 @@ export async function seed(knex: Knex): Promise<void> {
       max_payout: 1000,
     }),
     min_stake: 2,
-    max_stake: 500,
+    max_stake: 10000,
     is_active: true,
   });
 }
