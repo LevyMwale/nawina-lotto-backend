@@ -57,12 +57,30 @@ function getCurrentOrPreviousDrawTime(now = new Date()): Date {
   return new Date(yesterday.getTime() + DRAW_TIMES[1] * 60 * 60 * 1000);
 }
 
+/** Helper: checks whether a Date falls on one of the valid draw hours (08:00 or 18:00). */
+function isValidDrawTime(d: Date): boolean {
+  return DRAW_TIMES.includes(d.getHours());
+}
+
 export class HourlyDrawService {
   /**
    * Create the next upcoming draw if it doesn't already exist.
+   * Also cleans up stale open draws that were created at wrong times.
    */
   async createNextDraw(): Promise<HourlyDraw> {
     const nextTime = getNextDrawTime();
+
+    // Clean up stale draws not at valid 08:00 / 18:00 times
+    const staleDraws = await HourlyDraw.query()
+      .where('status', 'open')
+      .where('scheduled_at', '<', nextTime.toISOString());
+    for (const stale of staleDraws) {
+      const d = new Date(stale.scheduled_at);
+      if (!isValidDrawTime(d)) {
+        console.log(`[DrawCleanup] Removing stale draw ${stale.id} @ ${stale.scheduled_at}`);
+        await HourlyDraw.query().deleteById(stale.id);
+      }
+    }
 
     const existing = await HourlyDraw.query()
       .where('scheduled_at', nextTime.toISOString())
@@ -163,7 +181,7 @@ export class HourlyDrawService {
     return await transaction(HourlyDraw.knex(), async (trx) => {
       // 1. Deduct total cost from user wallet
       const deductResult = await walletService.deduct(userId, totalCost, 'purchase', {
-        game_type: 'hourly_draw',
+        game_type: 'draw',
         draw_id: drawId,
         ticket_count: ticketCount,
       });
@@ -205,7 +223,7 @@ export class HourlyDrawService {
       // 5. Record game_play for audit trail
       await GamePlay.query(trx).insert({
         user_id: userId,
-        game_type: 'hourly_draw',
+        game_type: 'draw',
         stake: totalCost,
         bet_data: { draw_id: drawId, ticket_numbers: ticketNumbers, ticket_price: ticketPrice },
         result: { status: 'entered', draw_id: drawId },
@@ -292,7 +310,7 @@ export class HourlyDrawService {
     // Credit the winner
     if (actualPrize > 0) {
       await walletService.credit(winnerUserId, actualPrize, 'win', {
-        game_type: 'hourly_draw',
+        game_type: 'draw',
         draw_id: drawId,
         winning_ticket: winningTicketNumber,
         prize_source: adminPrize > 0 ? 'admin_set' : 'pooled',
@@ -313,7 +331,7 @@ export class HourlyDrawService {
     // Record winning game_play row
     await GamePlay.query().insert({
       user_id: winnerUserId,
-      game_type: 'hourly_draw',
+      game_type: 'draw',
       stake: winningEntry.amount_paid,
       bet_data: { draw_id: drawId, ticket_number: winningTicketNumber },
       result: {
@@ -363,16 +381,9 @@ export class HourlyDrawService {
     }
 
     if (!draw) {
-      // Fallback: future open draw only (don't show stale past draws)
-      draw = await HourlyDraw.query()
-        .where('status', 'open')
-        .where('scheduled_at', '>', new Date().toISOString())
-        .orderBy('scheduled_at', 'asc')
-        .first();
-    }
-
-    if (!draw) {
-      // Nothing at all — auto-create the upcoming draw so the UI never breaks
+      // Nothing at all — auto-create the upcoming draw so the UI never breaks.
+      // Do NOT fall back to any future open draw: stale draws created at wrong
+      // times (e.g. 10:00) must never surface in the UI.
       draw = await this.createNextDraw();
     }
 
@@ -439,7 +450,7 @@ export class HourlyDrawService {
 
       for (const entry of entries) {
         await walletService.credit(entry.user_id, entry.amount_paid, 'refund', {
-          game_type: 'hourly_draw',
+          game_type: 'draw',
           draw_id: drawId,
           ticket_number: entry.ticket_number,
           cancelled_by: adminId,

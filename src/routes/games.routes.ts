@@ -279,9 +279,9 @@ router.get('/history', async (req: AuthRequest, res) => {
 });
 
 // ============================================
-// HOURLY DRAW (RAFFLE)
+// TWICE-DAILY DRAW (RAFFLE)
 // ============================================
-router.post('/hourly/ticket', async (req: AuthRequest, res) => {
+router.post('/draw/ticket', async (req: AuthRequest, res) => {
   try {
     const { draw_id, count } = req.body;
     if (!draw_id) {
@@ -295,7 +295,7 @@ router.post('/hourly/ticket', async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/hourly/current', async (req: AuthRequest, res) => {
+router.get('/draw/current', async (req: AuthRequest, res) => {
   try {
     const result = await hourlyDrawService.getCurrentDraw(req.userId!);
     const draw = result.draw;
@@ -323,7 +323,7 @@ router.get('/hourly/current', async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/hourly/history', async (_req, res) => {
+router.get('/draw/history', async (_req, res) => {
   try {
     const result = await hourlyDrawService.getDrawHistory();
     res.json({
@@ -374,7 +374,7 @@ router.get('/recent-wins', async (_req, res) => {
       SELECT
         hd.id,
         COALESCE(u.full_name, u.phone) AS name,
-        'Hourly Draw' AS game,
+        'Twice-Daily Draw' AS game,
         hd.prize_pool AS amount,
         hd.completed_at AS won_at,
         'draw' AS kind
@@ -462,7 +462,7 @@ router.get('/leaderboard', async (_req, res) => {
       LIMIT ?
     `, [limit]);
 
-    // 2. Hourly draw winners (jackpot wins)
+    // 2. Twice-daily draw winners (jackpot wins)
     const drawRows = await knex.raw(`
       SELECT
         u.id AS user_id,
