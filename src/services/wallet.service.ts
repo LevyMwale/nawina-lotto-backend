@@ -143,8 +143,8 @@ export class WalletService {
       throw new Error('Minimum deposit is K2');
     }
 
-    // Lipila deposit flow: create pending transaction, initiate via gateway
-    if (method === 'lipila') {
+    // Mobile money deposit flow (MTN, Airtel, Zamtel) — all route through Lipila
+    if (['lipila', 'mtn', 'airtel', 'zamtel'].includes(method)) {
       if (!details?.mobileNumber) {
         throw new Error('Phone number is required for Lipila deposits');
       }
@@ -173,7 +173,8 @@ export class WalletService {
         status: 'pending',
         reference,
         metadata: {
-          payment_method: 'lipila',
+          payment_method: method,
+          gateway: 'lipila',
           lipila_reference: reference,
           mobile_number: details.mobileNumber,
         },
@@ -230,8 +231,8 @@ export class WalletService {
       throw new Error('Insufficient balance');
     }
 
-    // Lipila withdrawal flow: create pending transaction, initiate payout
-    if (method === 'lipila') {
+    // Mobile money withdrawal flow (MTN, Airtel, Zamtel) — all route through Lipila
+    if (['lipila', 'mtn', 'airtel', 'zamtel'].includes(method)) {
       if (!details?.mobileNumber) {
         throw new Error('Phone number is required for Lipila withdrawals');
       }
@@ -270,7 +271,8 @@ export class WalletService {
           status: 'pending',
           reference,
           metadata: {
-            withdrawal_method: 'lipila',
+            withdrawal_method: method,
+            gateway: 'lipila',
             lipila_reference: reference,
             mobile_number: details.mobileNumber,
             withdrawal: true,
