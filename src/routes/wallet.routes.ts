@@ -12,7 +12,7 @@ console.log('📦 Wallet routes file loaded');
 router.get('/lipila-health', async (_req, res) => {
   try {
     const apiKey = (process.env.LIPILA_API_KEY || '').trim();
-    const baseUrl = (process.env.LIPILA_BASE_URL || 'https://api.lipila.dev').replace(/\/$/, '');
+    const baseUrl = (process.env.LIPILA_BASE_URL || 'https://blz.lipila.io').replace(/\/$/, '');
 
     if (!apiKey) {
       return res.status(503).json({

@@ -32,7 +32,7 @@
  *
  * Required environment variables:
  *   LIPILA_API_KEY      — x-api-key header value
- *   LIPILA_BASE_URL     — https://api.lipila.dev (optional override)
+ *   LIPILA_BASE_URL     — https://blz.lipila.io (confirmed working endpoint)
  *   APP_URL             — Callback base URL
  */
 
@@ -54,16 +54,16 @@ function getConfig(): LipilaConfig {
   // Trim whitespace — common copy-paste issue from dashboards
   const apiKey = (process.env.LIPILA_API_KEY || '').trim();
   const envBase = (process.env.LIPILA_BASE_URL || '').replace(/\/$/, '');
-  const baseUrl = envBase || 'https://api.lipila.dev';
+  const baseUrl = envBase || 'https://blz.lipila.io';
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
 
   if (!apiKey) {
     console.warn('[Lipila] Missing LIPILA_API_KEY. Live calls will fail with 401.');
   }
-  if (baseUrl.includes('dashboard') || baseUrl.includes('lipila.io')) {
+  if (baseUrl.includes('dashboard')) {
     console.error(
       `[Lipila] WARN: base URL looks like the dashboard site (${baseUrl}), not the API endpoint. ` +
-      `Delete LIPILA_BASE_URL from Render env vars or set it to https://api.lipila.dev`
+      `Delete LIPILA_BASE_URL from Render env vars or set it to https://blz.lipila.io`
     );
   }
 
