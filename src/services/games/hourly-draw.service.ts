@@ -22,7 +22,7 @@ const rngService = new RNGService();
  */
 
 const DRAW_TIMES = [8, 18]; // hours of the day (08:00 and 18:00)
-const DEFAULT_TICKET_PRICE = 10;
+const DEFAULT_TICKET_PRICE = 2;
 const POOL_PERCENTAGE = 0.80;
 
 function getNextDrawTime(now = new Date()): Date {
