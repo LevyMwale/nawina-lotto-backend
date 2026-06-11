@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 
 /**
  * One-shot data migration: null out stored PINs so they can no longer be

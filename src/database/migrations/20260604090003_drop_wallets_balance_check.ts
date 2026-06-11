@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 
 /**
  * New users can be created via OTP and have a wallet with balance = 0

@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 
 export async function seed(knex: Knex): Promise<void> {
   // Idempotent: only insert if not already present. Re-runs of `knex seed:run`

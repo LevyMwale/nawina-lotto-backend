@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 
 // ============================================================================
 // Migration 007 — ZRA tax returns, auto-invoices, operator profile

@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import { ZraReturn, PlayerTaxLine } from '../models/ZraReturn';
 import { OperatorProfile } from '../models/OperatorProfile';
 

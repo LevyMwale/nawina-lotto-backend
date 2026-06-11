@@ -1,4 +1,4 @@
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 
 /**
  * Drop the NOT NULL constraint on users.pin_hash.

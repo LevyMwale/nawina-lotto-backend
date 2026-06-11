@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import { User } from '../models/User';
 import { Wallet } from '../models/Wallet';
 import { sms } from './sms.service';
