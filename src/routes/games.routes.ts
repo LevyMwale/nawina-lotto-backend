@@ -13,10 +13,7 @@ import { Transaction } from '../models/Transaction';
 
 const router = Router();
 
-// All game routes require authentication
-router.use(authenticate);
-
-// Initialize services
+// Initialize services before auth so public routes can use them
 const spinWheelService = new SpinWheelService();
 const diceRollService = new DiceRollService();
 const lottoService = new LottoService();
@@ -25,6 +22,34 @@ const quizService = new QuizService();
 const soccerService = new SoccerService();
 const blackjackService = new BlackjackService();
 const hourlyDrawService = new HourlyDrawService();
+
+// ============================================
+// PUBLIC — upcoming draw (no auth needed)
+// ============================================
+router.get('/draw/upcoming', async (_req, res) => {
+  try {
+    const result = await hourlyDrawService.getCurrentDraw(undefined);
+    const draw = result.draw;
+    res.json({
+      draw: draw
+        ? {
+            id: draw.id,
+            scheduled_at: draw.scheduled_at,
+            status: draw.status,
+            ticket_price: Number(draw.ticket_price),
+            total_pool: Number(draw.total_pool),
+            prize_pool: Number(draw.prize_pool),
+            admin_prize_pool: draw.admin_prize_pool == null ? undefined : Number(draw.admin_prize_pool),
+          }
+        : null,
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// All game routes below require authentication
+router.use(authenticate);
 
 // ============================================
 // SPIN THE WHEEL
