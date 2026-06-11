@@ -133,7 +133,7 @@ export class LipilaService {
     const body = {
       referenceId,
       amount: Number(amount),
-      narration: `NaWiNa deposit — K${amount}`,
+      narration: `Nawina deposit K${amount}`,
       accountNumber: normalizedPhone,
       currency: 'ZMW',
       email: '',
@@ -272,7 +272,7 @@ export class LipilaService {
     const body: Record<string, any> = {
       referenceId,
       amount: Number(amount),
-      narration: `NaWiNa withdrawal — K${amount}`,
+      narration: `Nawina withdrawal K${amount}`,
       accountNumber: normalizedPhone,
       currency: 'ZMW',
     };
