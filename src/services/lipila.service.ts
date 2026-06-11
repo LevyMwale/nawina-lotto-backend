@@ -50,10 +50,11 @@ function getConfig(): LipilaConfig {
   // Trim whitespace — common copy-paste issue from dashboards
   const apiKey = (process.env.LIPILA_API_KEY || '').trim();
   const baseUrl = normalizeUrl(process.env.LIPILA_BASE_URL, 'https://blz.lipila.io');
-  // Disbursements use a DIFFERENT base URL per Lipila docs (api.lipila.dev vs blz.lipila.io)
+  // Collections and disbursements share the same base URL (Lipila confirmed).
+  // Only the path differs: /collections/mobile-money vs /disbursements/mobile-money.
   const disbursementBaseUrl = normalizeUrl(
-    process.env.LIPILA_DISBURSEMENT_BASE_URL,
-    'https://api.lipila.dev',
+    process.env.LIPILA_DISBURSEMENT_BASE_URL || process.env.LIPILA_BASE_URL,
+    'https://blz.lipila.io',
   );
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
 
@@ -66,13 +67,6 @@ function getConfig(): LipilaConfig {
     console.error(
       `[Lipila] WARN: base URL looks like the dashboard site (${baseUrl}), not the API endpoint. ` +
       `Delete LIPILA_BASE_URL from Render env vars or set it to https://blz.lipila.io`
-    );
-  }
-  if (disbursementBaseUrl === baseUrl) {
-    console.warn(
-      `[Lipila] WARN: disbursementBaseUrl equals baseUrl (${baseUrl}). ` +
-      `Disbursements and collections should use different endpoints. ` +
-      `Set LIPILA_DISBURSEMENT_BASE_URL=https://api.lipila.dev on Render.`
     );
   }
 
@@ -302,13 +296,14 @@ export class LipilaService {
         const msg = data?.message || data?.error || `Lipila HTTP ${response.status}`;
         console.error(`[Lipila] initiateWithdrawal failed: ${msg} (url=${url})`);
         if (response.status === 401) {
-          const isWrongUrl = config.disbursementBaseUrl === config.baseUrl;
           return {
             success: false,
             reference: referenceId,
-            message: isWrongUrl
-              ? 'Lipila withdrawal failed (401): disbursement URL is set to the same endpoint as collections. Please set LIPILA_DISBURSEMENT_BASE_URL=https://api.lipila.dev in Render env vars.'
-              : 'Lipila withdrawal authorization failed (401). Either your API key lacks disbursement permissions, or the server IP is not whitelisted. Contact Lipila support.',
+            message:
+              'Lipila withdrawal failed (401). Possible causes:\n' +
+              '1. Your API key does not have disbursement permissions — contact Lipila support to enable payouts.\n' +
+              '2. The server IP is not whitelisted — add 74.220.48.5/32 (or Render outbound IPs) to your Lipila dashboard.\n' +
+              '3. You are using a sandbox key on the production endpoint (or vice versa).',
           };
         }
         return { success: false, reference: referenceId, message: msg };
