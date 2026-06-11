@@ -57,6 +57,8 @@ function getConfig(): LipilaConfig {
   );
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
 
+  console.log(`[LipilaConfig] baseUrl=${baseUrl} disbursementBaseUrl=${disbursementBaseUrl} appUrl=${appUrl} keyPresent=${!!apiKey}`);
+
   if (!apiKey) {
     console.warn('[Lipila] Missing LIPILA_API_KEY. Live calls will fail with 401.');
   }
@@ -64,6 +66,13 @@ function getConfig(): LipilaConfig {
     console.error(
       `[Lipila] WARN: base URL looks like the dashboard site (${baseUrl}), not the API endpoint. ` +
       `Delete LIPILA_BASE_URL from Render env vars or set it to https://blz.lipila.io`
+    );
+  }
+  if (disbursementBaseUrl === baseUrl) {
+    console.warn(
+      `[Lipila] WARN: disbursementBaseUrl equals baseUrl (${baseUrl}). ` +
+      `Disbursements and collections should use different endpoints. ` +
+      `Set LIPILA_DISBURSEMENT_BASE_URL=https://api.lipila.dev on Render.`
     );
   }
 
@@ -291,15 +300,15 @@ export class LipilaService {
 
       if (!response.ok) {
         const msg = data?.message || data?.error || `Lipila HTTP ${response.status}`;
-        console.error('[Lipila] initiateWithdrawal failed:', msg);
+        console.error(`[Lipila] initiateWithdrawal failed: ${msg} (url=${url})`);
         if (response.status === 401) {
+          const isWrongUrl = config.disbursementBaseUrl === config.baseUrl;
           return {
             success: false,
             reference: referenceId,
-            message:
-              'Lipila withdrawal authorization failed (401). ' +
-              'Your API key does not have disbursement permissions. ' +
-              'Contact Lipila support to enable payouts / disbursements on your account.',
+            message: isWrongUrl
+              ? 'Lipila withdrawal failed (401): disbursement URL is set to the same endpoint as collections. Please set LIPILA_DISBURSEMENT_BASE_URL=https://api.lipila.dev in Render env vars.'
+              : 'Lipila withdrawal authorization failed (401). Either your API key lacks disbursement permissions, or the server IP is not whitelisted. Contact Lipila support.',
           };
         }
         return { success: false, reference: referenceId, message: msg };
