@@ -309,14 +309,18 @@ router.get('/history', async (req: AuthRequest, res) => {
 router.post('/draw/ticket', async (req: AuthRequest, res) => {
   try {
     const { draw_id, count } = req.body;
+    console.log(`[DrawTicket] user=${req.userId} draw_id=${draw_id} count=${count}`);
     if (!draw_id) {
+      console.log('[DrawTicket] rejected: missing draw_id');
       return res.status(400).json({ error: 'draw_id is required' });
     }
     const ticketCount = Math.max(1, Math.min(100, parseInt(count) || 1));
     const result = await hourlyDrawService.buyTicket(req.userId!, draw_id, ticketCount);
+    console.log(`[DrawTicket] success user=${req.userId} tickets=${result.ticket_numbers.length} balance=${result.balance}`);
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error(`[DrawTicket] FAILED user=${req.userId}:`, error?.message || error);
+    res.status(400).json({ error: error.message || 'Ticket purchase failed' });
   }
 });
 

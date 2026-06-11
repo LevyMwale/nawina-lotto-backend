@@ -183,9 +183,11 @@ export class HourlyDrawService {
       throw new Error('Ticket count must be between 1 and 100');
     }
 
+    console.log(`[buyTicket] start user=${userId} drawId=${drawId} count=${ticketCount}`);
     return await transaction(HourlyDraw.knex(), async (trx) => {
       // 1. Lock the draw row to serialize purchases and prevent race conditions
       const draw = await HourlyDraw.query(trx).findById(drawId).forUpdate();
+      console.log(`[buyTicket] fetched draw status=${draw?.status} price=${draw?.ticket_price}`);
       if (!draw) {
         throw new Error('Draw not found');
       }
@@ -195,23 +197,26 @@ export class HourlyDrawService {
 
       const ticketPrice = Number(draw.ticket_price);
       const totalCost = ticketPrice * ticketCount;
+      console.log(`[buyTicket] ticketPrice=${ticketPrice} totalCost=${totalCost}`);
 
-      // 2. Deduct total cost from user wallet
+      // 2. Deduct total cost from user wallet (reuse outer transaction)
       const deductResult = await walletService.deduct(userId, totalCost, 'purchase', {
         game_type: 'draw',
         draw_id: drawId,
         ticket_count: ticketCount,
-      });
+      }, trx);
+      console.log(`[buyTicket] deducted newBalance=${deductResult.new_balance}`);
 
-      // 2. Find the highest existing ticket number for this draw
+      // 3. Find the highest existing ticket number for this draw
       const lastEntry = await HourlyDrawEntry.query(trx)
         .where({ draw_id: drawId })
         .orderBy('ticket_number', 'desc')
         .first();
 
       const startNumber = lastEntry ? lastEntry.ticket_number + 1 : 1;
+      console.log(`[buyTicket] startNumber=${startNumber}`);
 
-      // 3. Insert entries
+      // 4. Insert entries
       const ticketNumbers: number[] = [];
       for (let i = 0; i < ticketCount; i++) {
         const ticketNum = startNumber + i;
@@ -223,8 +228,9 @@ export class HourlyDrawService {
         });
         ticketNumbers.push(ticketNum);
       }
+      console.log(`[buyTicket] inserted tickets=${ticketNumbers.join(',')}`);
 
-      // 4. Update draw pool totals
+      // 5. Update draw pool totals
       const newTotalPool = Number(draw.total_pool) + totalCost;
       const newPrizePool = newTotalPool * POOL_PERCENTAGE;
       const newHouseEdge = newTotalPool - newPrizePool;
@@ -237,7 +243,7 @@ export class HourlyDrawService {
         })
         .where({ id: drawId });
 
-      // 5. Record game_play for audit trail
+      // 6. Record game_play for audit trail
       await GamePlay.query(trx).insert({
         user_id: userId,
         game_type: 'draw',
@@ -248,6 +254,7 @@ export class HourlyDrawService {
         rng_seed: '',
       });
 
+      console.log(`[buyTicket] complete user=${userId} tickets=${ticketNumbers.length}`);
       return {
         success: true,
         draw_id: drawId,
@@ -424,11 +431,14 @@ export class HourlyDrawService {
   }> {
     const now = new Date();
     const next = getNextDrawTime(now);
+    console.log(`[getCurrentDraw] now=${now.toISOString()} nextDraw=${next.toISOString()}`);
 
     // Always return the next upcoming draw — never a past one.
     let draw = await this.findDrawAt(next);
+    console.log(`[getCurrentDraw] findDrawAt result=${draw ? draw.id : 'null'} status=${draw?.status}`);
     if (!draw) {
       draw = await this.createNextDraw();
+      console.log(`[getCurrentDraw] created new draw=${draw.id} @ ${draw.scheduled_at}`);
     }
 
     const totalEntries = await HourlyDrawEntry.query()
@@ -443,6 +453,7 @@ export class HourlyDrawService {
       userTickets = userEntries.map((e: HourlyDrawEntry) => e.ticket_number);
     }
 
+    console.log(`[getCurrentDraw] returning draw=${draw.id} entries=${totalEntries}`);
     return {
       draw,
       total_entries: totalEntries,
@@ -498,7 +509,7 @@ export class HourlyDrawService {
           draw_id: drawId,
           ticket_number: entry.ticket_number,
           cancelled_by: adminId,
-        });
+        }, trx);
         totalRefunded += Number(entry.amount_paid);
       }
 

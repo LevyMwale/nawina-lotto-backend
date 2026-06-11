@@ -26,12 +26,18 @@ export class WalletService {
     };
   }
 
-  async deduct(userId: string, amount: number, type: 'bet' | 'purchase', metadata?: any) {
+  async deduct(
+    userId: string,
+    amount: number,
+    type: 'bet' | 'purchase',
+    metadata?: any,
+    trx?: any
+  ) {
     if (amount <= 0) {
       throw new Error('Amount must be positive');
     }
 
-    return await transaction(Wallet.knex(), async (trx) => {
+    const doDeduct = async (trx: any) => {
       const wallet = await Wallet.query(trx)
         .findOne({ user_id: userId })
         .forUpdate();
@@ -66,15 +72,26 @@ export class WalletService {
         transaction_id: txn.id,
         new_balance: newBalance,
       };
-    });
+    };
+
+    if (trx) {
+      return await doDeduct(trx);
+    }
+    return await transaction(Wallet.knex(), doDeduct);
   }
 
-  async credit(userId: string, amount: number, type: 'win' | 'deposit' | 'refund' | 'bonus', metadata?: any) {
+  async credit(
+    userId: string,
+    amount: number,
+    type: 'win' | 'deposit' | 'refund' | 'bonus',
+    metadata?: any,
+    trx?: any
+  ) {
     if (amount <= 0) {
       throw new Error('Amount must be positive');
     }
 
-    return await transaction(Wallet.knex(), async (trx) => {
+    const doCredit = async (trx: any) => {
       const wallet = await Wallet.query(trx)
         .findOne({ user_id: userId })
         .forUpdate();
@@ -126,7 +143,12 @@ export class WalletService {
             }
           : null,
       };
-    });
+    };
+
+    if (trx) {
+      return await doCredit(trx);
+    }
+    return await transaction(Wallet.knex(), doCredit);
   }
 
   // Deposit method
