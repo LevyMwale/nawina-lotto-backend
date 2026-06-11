@@ -130,6 +130,90 @@ export class AfricasTalkingSms implements SmsService {
 }
 
 /**
+ * SwiftSMS (Zambia) wrapper.
+ *
+ * Env vars (all required for this provider):
+ *   - SWIFTSMS_API_KEY  : Bearer token from the SwiftSMS dashboard
+ *   - SWIFTSMS_SENDER_ID: registered alphanumeric sender id (e.g. NaWiNa)
+ *
+ * The API expects a GET request with a JSON body.  Node's built-in `https`
+ * module is used so we don't need any extra dependencies.
+ */
+export class SwiftSms implements SmsService {
+  private apiKey: string;
+  private senderId: string;
+  private endpoint: string;
+
+  constructor() {
+    this.apiKey = process.env.SWIFTSMS_API_KEY || '';
+    this.senderId = process.env.SWIFTSMS_SENDER_ID || 'NaWiNa';
+    this.endpoint = process.env.SWIFTSMS_ENDPOINT || 'https://swiftsms.macroit.org/api/send_message';
+    if (!this.apiKey) {
+      // eslint-disable-next-line no-console
+      console.warn('[sms] SWIFTSMS_API_KEY is not set; SwiftSMS sends will fail.');
+    }
+  }
+
+  async send(phone: string, message: string): Promise<string> {
+    if (!this.apiKey) {
+      throw new SmsFailedError('SwiftSMS API key is not configured');
+    }
+
+    // Convert E.164 (+260XXXXXXXXX) → local Zambian format (0XXXXXXXXX)
+    let number = phone;
+    if (number.startsWith('+260')) number = '0' + number.slice(4);
+    else if (number.startsWith('260')) number = '0' + number.slice(3);
+
+    const payload = JSON.stringify({
+      sender_id: this.senderId,
+      numbers: number,
+      message,
+    });
+
+    const { hostname, port, pathname, search } = new URL(this.endpoint);
+
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname,
+        port: port || 443,
+        path: pathname + search,
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const req = require('https').request(options, (res: any) => {
+        let data = '';
+        res.on('data', (chunk: any) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode === 202) {
+            resolve(`swift-${Date.now()}`);
+          } else {
+            // eslint-disable-next-line no-console
+            console.error('[sms] SwiftSMS error:', res.statusCode, data);
+            reject(new SmsFailedError(`SwiftSMS rejected the request (${res.statusCode})`));
+          }
+        });
+      });
+
+      req.on('error', (err: any) => {
+        // eslint-disable-next-line no-console
+        console.error('[sms] SwiftSMS network error:', err?.message || err);
+        reject(new SmsFailedError('SMS provider network error'));
+      });
+
+      req.write(payload);
+      req.end();
+    });
+  }
+}
+
+/**
  * Default SMS service, picked from `SMS_PROVIDER`. Defaults to `console` so
  * a fresh checkout works locally without configuring Africa's Talking.
  */
@@ -139,6 +223,8 @@ export const sms: SmsService = (() => {
     case 'at':
     case 'africastalking':
       return new AfricasTalkingSms();
+    case 'swiftsms':
+      return new SwiftSms();
     case 'console':
     default:
       return new ConsoleSms();
