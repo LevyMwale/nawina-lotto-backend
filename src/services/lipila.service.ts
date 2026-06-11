@@ -295,6 +295,16 @@ export class LipilaService {
       if (!response.ok) {
         const msg = data?.message || data?.error || `Lipila HTTP ${response.status}`;
         console.error('[Lipila] initiateWithdrawal failed:', msg);
+        if (response.status === 401) {
+          return {
+            success: false,
+            reference: referenceId,
+            message:
+              'Lipila withdrawal authorization failed (401). ' +
+              'Your API key does not have disbursement permissions. ' +
+              'Contact Lipila support to enable payouts / disbursements on your account.',
+          };
+        }
         return { success: false, reference: referenceId, message: msg };
       }
 
