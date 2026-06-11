@@ -284,11 +284,7 @@ export class HourlyDrawService {
     // Global pool check for admin-set prizes (ticket-sales pool is self-funded)
     if (adminPrize > 0) {
       const housePool = new HousePoolService();
-      const pool = await housePool.getPoolStatus();
-      if (pool.isExhausted || actualPrize > pool.availableBudget) {
-        console.log(`[Draw] Admin prize ${actualPrize} exceeds pool budget ${pool.availableBudget}. Capping to 0.`);
-        actualPrize = 0;
-      }
+      actualPrize = await housePool.capPayout(actualPrize);
     }
 
     if (totalEntries === 0) {

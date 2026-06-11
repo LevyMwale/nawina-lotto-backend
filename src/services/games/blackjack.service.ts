@@ -304,13 +304,11 @@ export class BlackjackService {
     let { status, multiplier } = judgeHand(state, playerTotal, dealerTotal, doubled);
     let payout = status === 'in_progress' ? 0 : Math.floor(stake * multiplier);
 
-    // Global house pool enforcement
-    const pool = await this.housePoolService.getPoolStatus();
-    if (pool.isExhausted || payout > pool.availableBudget) {
-      console.log(`[Blackjack] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
+    // Global house pool enforcement — cap to budget, never force to zero
+    payout = await this.housePoolService.capPayout(payout);
+    if (payout <= 0) {
       status = 'lose';
       multiplier = 0;
-      payout = 0;
     }
 
     if (payout > 0) {

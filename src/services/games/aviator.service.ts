@@ -107,12 +107,10 @@ export class AviatorService {
       let won = multiplier > 1.0 && multiplier <= crashPoint;
       let payout = won ? Math.floor(stake * multiplier) : 0;
 
-      // 3b. Global house pool enforcement
-      const pool = await this.housePoolService.getPoolStatus();
-      if (pool.isExhausted || payout > pool.availableBudget) {
-        console.log(`[Aviator] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
+      // 3b. Global house pool enforcement — cap to budget, never force to zero
+      payout = await this.housePoolService.capPayout(payout);
+      if (payout <= 0) {
         won = false;
-        payout = 0;
       }
 
       // 4. Credit winnings if any
@@ -191,12 +189,10 @@ export class AviatorService {
       let won = multiplier > 1.0 && multiplier <= crashPoint;
       let payout = won ? Math.floor(stake * multiplier) : 0;
 
-      // 4b. Global house pool enforcement
-      const pool = await this.housePoolService.getPoolStatus();
-      if (pool.isExhausted || payout > pool.availableBudget) {
-        console.log(`[Aviator] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
+      // 4b. Global house pool enforcement — cap to budget, never force to zero
+      payout = await this.housePoolService.capPayout(payout);
+      if (payout <= 0) {
         won = false;
-        payout = 0;
       }
 
       // 5. Credit winnings if any

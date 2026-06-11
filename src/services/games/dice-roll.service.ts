@@ -55,13 +55,11 @@ export class DiceRollService {
       let multiplier = won ? PAYOUT_MULTIPLIERS[bet.type] : 0;
       let payout = stake * multiplier;
 
-      // 3b. Global house pool enforcement
-      const pool = await this.housePoolService.getPoolStatus();
-      if (pool.isExhausted || payout > pool.availableBudget) {
-        console.log(`[DiceRoll] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
+      // 3b. Global house pool enforcement — cap to budget, never force to zero
+      payout = await this.housePoolService.capPayout(payout);
+      if (payout <= 0) {
         won = false;
         multiplier = 0;
-        payout = 0;
       }
 
       // 4. Credit winnings

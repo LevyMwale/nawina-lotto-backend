@@ -167,26 +167,10 @@ export class QuizService {
         perQuestion.push(rollCorrect(picked[i].difficulty, r));
       }
 
-      // Phase 2 — check global pool before questions 3-5.
-      const pool = await this.housePoolService.getPoolStatus();
-      const poolExhausted = pool.isExhausted;
-      // Low = not enough budget to cover a full 5-correct jackpot
-      const potentialJackpot = Math.floor(stake * (DEFAULT_QUIZ_CONFIG.payoutByCorrect[5] ?? 0));
-      const poolLow = pool.availableBudget < potentialJackpot;
-
+      // Phase 2 — questions 3-5 use normal difficulty (pool cap applied at end)
       for (let i = 2; i < picked.length; i++) {
         const { random: r } = this.rngService.generateRandom();
-        if (poolExhausted) {
-          // Pool consumed — force the remaining questions wrong so the
-          // player cannot reach 3+ correct answers (the threshold for
-          // a profitable payout).
-          perQuestion.push(false);
-        } else if (poolLow) {
-          // Pool is running low — make it hard even if the question is easy.
-          perQuestion.push(r < 0.20);
-        } else {
-          perQuestion.push(rollCorrect(picked[i].difficulty, r));
-        }
+        perQuestion.push(rollCorrect(picked[i].difficulty, r));
       }
       const correctCount = perQuestion.filter(Boolean).length;
 
@@ -194,12 +178,10 @@ export class QuizService {
       let multiplier = DEFAULT_QUIZ_CONFIG.payoutByCorrect[correctCount] ?? 0;
       let payout = Math.floor(stake * multiplier);
 
-      // 5b. Global house pool enforcement (final guard)
-      const finalPool = await this.housePoolService.getPoolStatus();
-      if (finalPool.isExhausted || payout > finalPool.availableBudget) {
-        console.log(`[Quiz] Pool exhausted or payout ${payout} > budget ${finalPool.availableBudget}. Forcing lose.`);
+      // 5b. Global house pool enforcement — cap to budget, never force to zero
+      payout = await this.housePoolService.capPayout(payout);
+      if (payout <= 0) {
         multiplier = 0;
-        payout = 0;
       }
 
       // 6. Credit winnings if any

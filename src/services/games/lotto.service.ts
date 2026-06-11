@@ -23,7 +23,7 @@ interface LottoVariantConfig {
 const LOTTO_CONFIG: Record<LottoVariant, LottoVariantConfig> = {
   pick3: {
     count: 3,
-    range: [0, 9],
+    range: [1, 10], // matches frontend grid (numbers 1-10)
     multipliers: {
       3: 500,   // 500× stake
       2: 10,    // 10× stake
@@ -32,7 +32,7 @@ const LOTTO_CONFIG: Record<LottoVariant, LottoVariantConfig> = {
   },
   pick5: {
     count: 5,
-    range: [1, 50],
+    range: [1, 20], // matches frontend grid (numbers 1-20)
     multipliers: {
       5: 5000,  // 5000× stake
       4: 250,   // 250× stake
@@ -91,12 +91,8 @@ export class LottoService {
       const multiplier = config.multipliers[matches] || 0;
       let payout = round2(stake * multiplier);
 
-      // 3b. Global house pool enforcement
-      const pool = await this.housePoolService.getPoolStatus();
-      if (pool.isExhausted || payout > pool.availableBudget) {
-        console.log(`[Lotto] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
-        payout = 0;
-      }
+      // 3b. Global house pool enforcement — cap to budget, never force to zero
+      payout = await this.housePoolService.capPayout(payout);
 
       // 4. Credit winnings
       if (payout > 0) {

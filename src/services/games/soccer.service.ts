@@ -488,12 +488,10 @@ export class SoccerService {
 
       let payout = correct ? Math.floor(stake * config.correctMultiplier) : 0;
 
-      // Global house pool enforcement
-      const pool = await this.housePoolService.getPoolStatus();
-      if (pool.isExhausted || payout > pool.availableBudget) {
-        console.log(`[Soccer] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
+      // Global house pool enforcement — cap to budget, never force to zero
+      payout = await this.housePoolService.capPayout(payout);
+      if (payout <= 0) {
         correct = false;
-        payout = 0;
       }
 
       if (payout > 0) {

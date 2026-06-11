@@ -65,13 +65,11 @@ export class SpinWheelService {
       let multiplier = config.outcomes[outcome].multiplier;
       let payout = stake * multiplier;
 
-      // 3. Global house pool enforcement
-      const pool = await this.housePoolService.getPoolStatus();
-      if (pool.isExhausted || payout > pool.availableBudget) {
-        console.log(`[SpinWheel] Pool exhausted or payout ${payout} > budget ${pool.availableBudget}. Forcing lose.`);
+      // 3. Global house pool enforcement — cap to budget, never force to zero
+      payout = await this.housePoolService.capPayout(payout);
+      if (payout <= 0) {
         outcome = 'lose';
         multiplier = 0;
-        payout = 0;
       }
 
       // 4. Credit winnings if any
