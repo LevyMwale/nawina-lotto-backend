@@ -200,7 +200,7 @@ export class HourlyDrawService {
       console.log(`[buyTicket] ticketPrice=${ticketPrice} totalCost=${totalCost}`);
 
       // 2. Deduct total cost from user wallet (reuse outer transaction)
-      const deductResult = await walletService.deduct(userId, totalCost, 'purchase', {
+      const deductResult = await walletService.deduct(userId, totalCost, 'bet', {
         game_type: 'draw',
         draw_id: drawId,
         ticket_count: ticketCount,

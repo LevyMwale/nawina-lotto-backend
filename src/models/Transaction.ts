@@ -6,7 +6,7 @@ export class Transaction extends Model {
 
   id!: string;
   wallet_id!: string;
-  type!: 'deposit' | 'withdrawal' | 'purchase' | 'win' | 'refund' | 'bet' | 'bonus';
+  type!: 'deposit' | 'withdrawal' | 'bet' | 'win' | 'refund' | 'bonus';
   amount!: number;
   balance_before!: number;
   balance_after!: number;

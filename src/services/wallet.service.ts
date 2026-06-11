@@ -29,7 +29,7 @@ export class WalletService {
   async deduct(
     userId: string,
     amount: number,
-    type: 'bet' | 'purchase',
+    type: 'bet',
     metadata?: any,
     trx?: any
   ) {
@@ -324,7 +324,7 @@ export class WalletService {
     // }
 
     // Use the existing deduct method to remove funds
-    const result = await this.deduct(userId, amount, 'purchase', {
+    const result = await this.deduct(userId, amount, 'bet', {
       withdrawal_method: method,
       mobile_number: details?.mobileNumber,
       card_last4: details?.cardDetails?.number?.slice(-4),
