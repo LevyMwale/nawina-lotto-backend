@@ -102,8 +102,14 @@ router.post('/lipila-callback', async (req, res) => {
     const isSuccess = ['success', 'completed', 'successful', 'done', 'paid'].includes(rawStatus);
 
     if (isSuccess) {
+      if (txn.type === 'withdrawal') {
+        const result = await walletService.completeWithdrawalTransaction(txn);
+        console.log(`[LipilaCallback] Withdrawal completed — txnId=${txn.id}, newBalance=${result.newBalance}`);
+        return res.json({ status: 'ok', message: 'Withdrawal completed', balance: result.newBalance });
+      }
+
       const result = await walletService.completeDepositTransaction(txn);
-      console.log(`[LipilaCallback] Auto-completed — txnId=${txn.id}, newBalance=${result.newBalance}`);
+      console.log(`[LipilaCallback] Deposit completed — txnId=${txn.id}, newBalance=${result.newBalance}`);
       return res.json({ status: 'ok', message: 'Deposit completed', balance: result.newBalance });
     }
 

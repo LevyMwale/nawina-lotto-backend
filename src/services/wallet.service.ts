@@ -252,12 +252,6 @@ export class WalletService {
       throw new Error('Minimum withdrawal is K10');
     }
 
-    // Check balance first
-    const balanceInfo = await this.getBalance(userId);
-    if (balanceInfo.available < amount) {
-      throw new Error('Insufficient balance');
-    }
-
     // Mobile money withdrawal flow (MTN, Airtel, Zamtel) — all route through Lipila
     if (['lipila', 'mtn', 'airtel', 'zamtel'].includes(method)) {
       if (!details?.mobileNumber) {
@@ -283,7 +277,15 @@ export class WalletService {
           throw new Error('Wallet not found');
         }
 
+        const availableBalance = Number(wallet.balance) - Number(wallet.locked_amount);
+        if (availableBalance < amount) {
+          throw new Error('Insufficient balance');
+        }
+
         const newBalance = Number(wallet.balance) - amount;
+        if (newBalance < 0) {
+          throw new Error('Withdrawal would result in negative balance');
+        }
 
         await Wallet.query(trx)
           .patch({ balance: newBalance })
@@ -479,10 +481,6 @@ export class WalletService {
   }
 
   /**
-   * Poll the status of a Lipila deposit and complete it if confirmed.
-   * Returns the current status, and if completed, the new balance + invoice.
-   */
-  /**
    * Core completion logic — idempotent so it can be called from polling,
    * webhooks, or manual admin completion.
    */
@@ -536,6 +534,12 @@ export class WalletService {
         };
       }
 
+      // Safety: this method must only be used for deposits — withdrawals
+      // have already been deducted in withdraw() and must not be touched again.
+      if (freshTxn.type !== 'deposit') {
+        throw new Error(`completeDepositTransaction called for non-deposit type: ${freshTxn.type}`);
+      }
+
       const depositAmount = Number(freshTxn.amount);
       const newBalance = Number(wallet.balance) + depositAmount;
 
@@ -550,14 +554,11 @@ export class WalletService {
         })
         .where({ id: freshTxn.id });
 
-      let invoice: any = null;
-      if (freshTxn.type === 'deposit') {
-        invoice = await invoiceService.generateForDeposit(trx, {
-          userId: wallet.user_id,
-          transactionId: freshTxn.id,
-          amount: depositAmount,
-        });
-      }
+      const invoice = await invoiceService.generateForDeposit(trx, {
+        userId: wallet.user_id,
+        transactionId: freshTxn.id,
+        amount: depositAmount,
+      });
 
       return {
         newBalance,
@@ -571,6 +572,46 @@ export class WalletService {
             }
           : null,
       };
+    });
+  }
+
+  /**
+   * Complete a withdrawal — unlike deposits, the wallet was already
+   * debited in withdraw() so we only mark the transaction as completed.
+   */
+  async completeWithdrawalTransaction(txn: Transaction): Promise<{
+    newBalance: number;
+  }> {
+    return await transaction(Transaction.knex(), async (trx) => {
+      const freshTxn = await Transaction.query(trx)
+        .findById(txn.id)
+        .forUpdate();
+
+      if (!freshTxn) {
+        throw new Error('Transaction not found');
+      }
+
+      const wallet = await Wallet.query(trx)
+        .findById(freshTxn.wallet_id)
+        .forUpdate();
+
+      if (!wallet) {
+        throw new Error('Wallet not found');
+      }
+
+      if (freshTxn.status === 'completed') {
+        return { newBalance: Number(wallet.balance) };
+      }
+
+      if (freshTxn.type !== 'withdrawal') {
+        throw new Error(`completeWithdrawalTransaction called for non-withdrawal type: ${freshTxn.type}`);
+      }
+
+      await Transaction.query(trx)
+        .patch({ status: 'completed' })
+        .where({ id: freshTxn.id });
+
+      return { newBalance: Number(wallet.balance) };
     });
   }
 
@@ -621,6 +662,17 @@ export class WalletService {
     }
 
     if (lipilaStatus.status === 'completed') {
+      if (txn.type === 'withdrawal') {
+        console.log(`[WalletDepositStatus] Completing withdrawal — marking txn completed for userId=${userId}, ref=${reference}`);
+        const result = await this.completeWithdrawalTransaction(txn);
+        console.log(`[WalletDepositStatus] Withdrawal completed — newBalance=${result.newBalance}`);
+        return {
+          status: 'completed' as const,
+          balance: result.newBalance,
+          invoice: null,
+        };
+      }
+
       console.log(`[WalletDepositStatus] Completing deposit — crediting wallet for userId=${userId}, amount=${txn.amount}`);
       const result = await this.completeDepositTransaction(txn);
       console.log(`[WalletDepositStatus] Deposit completed — newBalance=${result.newBalance}, invoice=${result.invoice?.invoice_number || 'none'}`);
@@ -632,7 +684,7 @@ export class WalletService {
     }
 
     if (lipilaStatus.status === 'failed') {
-      console.log(`[WalletDepositStatus] Deposit failed — marking txn failed, reference=${reference}`);
+      console.log(`[WalletDepositStatus] Transaction failed — marking txn failed, reference=${reference}`);
       await Transaction.query()
         .patch({ status: 'failed' })
         .where({ id: txn.id });
@@ -673,6 +725,16 @@ export class WalletService {
 
     if (txn.status === 'failed' || txn.status === 'cancelled') {
       throw new Error(`Cannot complete a ${txn.status} transaction`);
+    }
+
+    if (txn.type === 'withdrawal') {
+      const result = await this.completeWithdrawalTransaction(txn);
+      return {
+        status: 'completed' as const,
+        balance: result.newBalance,
+        invoice: null,
+        message: 'Withdrawal completed manually',
+      };
     }
 
     const result = await this.completeDepositTransaction(txn);
