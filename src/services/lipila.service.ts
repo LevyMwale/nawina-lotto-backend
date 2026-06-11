@@ -198,7 +198,8 @@ export class LipilaService {
     const config = getConfig();
 
     try {
-      const url = `${config.baseUrl}/api/v1/collections/mobile-money/${encodeURIComponent(reference)}`;
+      // Lipila docs show status check as GET /api/v1/collections/check-status?referenceId=...
+      const url = `${config.baseUrl}/api/v1/collections/check-status?referenceId=${encodeURIComponent(reference)}`;
       console.log(`[Lipila] GET ${url}`);
 
       const response = await lipilaFetch(url, config.apiKey, { method: 'GET' });

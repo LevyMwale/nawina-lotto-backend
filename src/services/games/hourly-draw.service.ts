@@ -68,6 +68,9 @@ export class HourlyDrawService {
   async createNextDraw(): Promise<HourlyDraw> {
     const nextTime = getNextDrawTime();
 
+    // Safety net: execute any open draws whose time has already passed
+    await this.executePastDraws(nextTime);
+
     // Clean up stale draws not at valid 08:00 / 18:00 times
     const staleDraws = await HourlyDraw.query()
       .where('status', 'open')
@@ -111,21 +114,24 @@ export class HourlyDrawService {
   }
 
   /**
-   * Seed the current or most-recent draw on boot (in case server was down).
+   * Seed the next upcoming draw on boot (in case server was down).
+   * Also executes any past open draws that were missed.
    */
   async seedCurrentDraw(): Promise<HourlyDraw> {
-    const currentTime = getCurrentOrPreviousDrawTime();
+    const now = new Date();
 
-    const existing = await HourlyDraw.query()
-      .where('scheduled_at', currentTime.toISOString())
-      .first();
+    // Safety net: execute any draws whose time has already passed
+    await this.executePastDraws(now);
 
+    // Ensure the next upcoming draw exists
+    const nextTime = getNextDrawTime(now);
+    const existing = await this.findDrawAt(nextTime);
     if (existing) {
       return existing;
     }
 
     return await HourlyDraw.query().insert({
-      scheduled_at: currentTime,
+      scheduled_at: nextTime,
       status: 'open',
       ticket_price: DEFAULT_TICKET_PRICE,
       total_pool: 0,
@@ -177,19 +183,20 @@ export class HourlyDrawService {
       throw new Error('Ticket count must be between 1 and 100');
     }
 
-    const draw = await HourlyDraw.query().findById(drawId);
-    if (!draw) {
-      throw new Error('Draw not found');
-    }
-    if (draw.status !== 'open') {
-      throw new Error('This draw is no longer open for entries');
-    }
-
-    const ticketPrice = Number(draw.ticket_price);
-    const totalCost = ticketPrice * ticketCount;
-
     return await transaction(HourlyDraw.knex(), async (trx) => {
-      // 1. Deduct total cost from user wallet
+      // 1. Lock the draw row to serialize purchases and prevent race conditions
+      const draw = await HourlyDraw.query(trx).findById(drawId).forUpdate();
+      if (!draw) {
+        throw new Error('Draw not found');
+      }
+      if (draw.status !== 'open') {
+        throw new Error('This draw is no longer open for entries');
+      }
+
+      const ticketPrice = Number(draw.ticket_price);
+      const totalCost = ticketPrice * ticketCount;
+
+      // 2. Deduct total cost from user wallet
       const deductResult = await walletService.deduct(userId, totalCost, 'purchase', {
         game_type: 'draw',
         draw_id: drawId,
@@ -362,10 +369,36 @@ export class HourlyDrawService {
   }
 
   /**
+   * Safety net: execute any open draws whose scheduled time has already passed.
+   * Call this before creating new draws or returning the "current" draw.
+   */
+  async executePastDraws(before: Date = new Date()): Promise<number> {
+    const pastOpenDraws = await HourlyDraw.query()
+      .where('status', 'open')
+      .where('scheduled_at', '<', before.toISOString());
+
+    let executed = 0;
+    for (const draw of pastOpenDraws) {
+      console.log(`[DrawSafety] Auto-executing missed draw ${draw.id} @ ${draw.scheduled_at}`);
+      try {
+        await this.runDraw(draw.id);
+        executed++;
+      } catch (err: any) {
+        console.error(`[DrawSafety] Failed to auto-execute draw ${draw.id}:`, err.message);
+      }
+    }
+    return executed;
+  }
+
+  /**
    * One-time cleanup: delete any draws that are not at valid 08:00 / 18:00 UTC.
+   * Also auto-executes any past open draws (safety net).
    * Call this on server boot before seeding draws.
    */
   async cleanupStaleDraws(): Promise<number> {
+    // First, execute any past open draws that were missed by the cron job
+    await this.executePastDraws();
+
     const allOpen = await HourlyDraw.query().where('status', 'open');
     let removed = 0;
     for (const d of allOpen) {
@@ -390,15 +423,10 @@ export class HourlyDrawService {
     user_tickets: number[];
   }> {
     const now = new Date();
-    const currentOrPrev = getCurrentOrPreviousDrawTime(now);
     const next = getNextDrawTime(now);
 
-    // Prefer the upcoming draw
+    // Always return the next upcoming draw — never a past one.
     let draw = await this.findDrawAt(next);
-    if (!draw) {
-      draw = await this.findDrawAt(currentOrPrev);
-    }
-
     if (!draw) {
       draw = await this.createNextDraw();
     }
