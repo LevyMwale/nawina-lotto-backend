@@ -103,15 +103,16 @@ export class AviatorService {
         round_id: roundId,
       });
 
-      // 3. Player wins if they cashed out above 1.0 and at/below the crash point
-      let won = multiplier > 1.0 && multiplier <= crashPoint;
+      // 3. Player wins if they cashed out above 1.0 and at/below the crash point.
+      // The win/loss determination is based SOLELY on whether they stopped before
+      // the crash — the house pool only caps the AMOUNT, never retroactively
+      // turns a legitimate cash-out into a loss.
+      const won = multiplier > 1.0 && multiplier <= crashPoint;
       let payout = won ? Math.floor(stake * multiplier) : 0;
 
-      // 3b. Global house pool enforcement — cap to budget, never force to zero
+      // 3b. Global house pool enforcement — cap to budget, never force to zero.
+      // With MIN_BUDGET=50, capPayout always returns >0 for any positive input.
       payout = await this.housePoolService.capPayout(payout);
-      if (payout <= 0) {
-        won = false;
-      }
 
       // 4. Credit winnings if any
       if (payout > 0) {
@@ -186,14 +187,13 @@ export class AviatorService {
       const crashPoint = this.generateCrashPoint(random, config.crashCurve);
 
       // 4. Determine outcome: did the player cash out before crash?
-      let won = multiplier > 1.0 && multiplier <= crashPoint;
+      // The house pool only caps the amount — it never retroactively turns
+      // a legitimate cash-out into a loss.
+      const won = multiplier > 1.0 && multiplier <= crashPoint;
       let payout = won ? Math.floor(stake * multiplier) : 0;
 
       // 4b. Global house pool enforcement — cap to budget, never force to zero
       payout = await this.housePoolService.capPayout(payout);
-      if (payout <= 0) {
-        won = false;
-      }
 
       // 5. Credit winnings if any
       if (payout > 0) {
