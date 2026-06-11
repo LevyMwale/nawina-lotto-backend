@@ -269,14 +269,14 @@ export class LipilaService {
       normalizedPhone = '260' + normalizedPhone;
     }
 
-    const body = {
+    const body: Record<string, any> = {
       referenceId,
       amount: Number(amount),
       narration: `NaWiNa withdrawal — K${amount}`,
       accountNumber: normalizedPhone,
       currency: 'ZMW',
-      email: '',
     };
+    // Only include email if provided; empty string causes ASP.NET validation errors
 
     const callbackUrl = config.appUrl ? `${config.appUrl}/api/wallet/lipila-callback` : undefined;
 
@@ -293,8 +293,9 @@ export class LipilaService {
       const data: any = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        const msg = data?.message || data?.error || `Lipila HTTP ${response.status}`;
+        const msg = data?.message || data?.error || data?.title || `Lipila HTTP ${response.status}`;
         console.error(`[Lipila] initiateWithdrawal failed: ${msg} (url=${url})`);
+        console.error(`[Lipila] FULL ERROR BODY:`, JSON.stringify(data));
         if (response.status === 401) {
           return {
             success: false,
