@@ -1,11 +1,14 @@
 /**
  * Lipila Payment Gateway Service
  *
- * Integrates with the Lipila API for mobile-money collections.
+ * Integrates with the Lipila API for mobile-money collections AND disbursements.
  * Docs: https://docs.lipila.dev
  *
- * Collections endpoint:
- *   POST https://api.lipila.dev/api/v1/collections/mobile-money
+ * Collections (deposits) endpoint:
+ *   POST https://blz.lipila.io/api/v1/collections/mobile-money
+ *
+ * Disbursements (withdrawals) endpoint:
+ *   POST https://api.lipila.dev/api/v1/disbursements/mobile-money
  *
  * Required headers:
  *   accept: application/json
@@ -13,27 +16,11 @@
  *   x-api-key: <your_secret_key>
  *   callbackUrl: <optional callback URL>
  *
- * Required body fields:
- *   referenceId  string    Unique reference
- *   amount       number    Amount to collect
- *   narration    string    Description of the transaction
- *   accountNumber string   Mobile money number (260xxxxxxxxx)
- *   currency     string    ZMW
- *   email        string    Optional
- *
- * Success response (200):
- *   {
- *     status: "Pending",
- *     identifier: "LPLXC-...",
- *     referenceId: "...",
- *     message: "Transaction Successful",
- *     ...
- *   }
- *
  * Required environment variables:
- *   LIPILA_API_KEY      — x-api-key header value
- *   LIPILA_BASE_URL     — https://blz.lipila.io (confirmed working endpoint)
- *   APP_URL             — Callback base URL
+ *   LIPILA_API_KEY                 — x-api-key header value
+ *   LIPILA_BASE_URL                — https://blz.lipila.io (collections endpoint)
+ *   LIPILA_DISBURSEMENT_BASE_URL   — https://api.lipila.dev (disbursements endpoint)
+ *   APP_URL                        — Callback base URL
  */
 
 function uuidv4(): string {
@@ -47,18 +34,27 @@ function uuidv4(): string {
 interface LipilaConfig {
   apiKey: string;
   baseUrl: string;
+  disbursementBaseUrl: string;
   appUrl: string;
+}
+
+function normalizeUrl(envVal: string | undefined, fallback: string): string {
+  let url = (envVal || '').replace(/\/$/, '');
+  if (url && !url.match(/^https?:\/\//)) {
+    url = 'https://' + url;
+  }
+  return url || fallback;
 }
 
 function getConfig(): LipilaConfig {
   // Trim whitespace — common copy-paste issue from dashboards
   const apiKey = (process.env.LIPILA_API_KEY || '').trim();
-  let envBase = (process.env.LIPILA_BASE_URL || '').replace(/\/$/, '');
-  // Guard against missing protocol — some env vars are set to just "blz.lipila.io"
-  if (envBase && !envBase.match(/^https?:\/\//)) {
-    envBase = 'https://' + envBase;
-  }
-  const baseUrl = envBase || 'https://blz.lipila.io';
+  const baseUrl = normalizeUrl(process.env.LIPILA_BASE_URL, 'https://blz.lipila.io');
+  // Disbursements use a DIFFERENT base URL per Lipila docs (api.lipila.dev vs blz.lipila.io)
+  const disbursementBaseUrl = normalizeUrl(
+    process.env.LIPILA_DISBURSEMENT_BASE_URL,
+    'https://api.lipila.dev',
+  );
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
 
   if (!apiKey) {
@@ -71,7 +67,7 @@ function getConfig(): LipilaConfig {
     );
   }
 
-  return { apiKey, baseUrl, appUrl };
+  return { apiKey, baseUrl, disbursementBaseUrl, appUrl };
 }
 
 /** Try the standard x-api-key header first. On 401, retry with Authorization: Bearer. */
@@ -281,7 +277,7 @@ export class LipilaService {
     const callbackUrl = config.appUrl ? `${config.appUrl}/api/wallet/lipila-callback` : undefined;
 
     try {
-      const url = `${config.baseUrl}/api/v1/disbursements/mobile-money`;
+      const url = `${config.disbursementBaseUrl}/api/v1/disbursements/mobile-money`;
       console.log(`[Lipila] POST ${url} — ref=${referenceId}, amount=${amount}, phone=${normalizedPhone}`);
 
       const response = await lipilaFetch(url, config.apiKey, {
