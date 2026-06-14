@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon src/server.ts",
     "build": "tsc",
+    "build:local": "tsc --ignoreDeprecations 5.0",
     "start": "node dist/server.js",
     "setup-db": "ts-node scripts/setup-db.ts",
     "migrate": "knex --knexfile knexfile.ts migrate:latest",
