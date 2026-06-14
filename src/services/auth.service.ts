@@ -2,7 +2,9 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
 import { Wallet } from '../models/Wallet';
+import { Marketer } from '../models/Marketer';
 import { transaction } from 'objection';
+import { MarketerService } from './marketer.service';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_EXPIRES_IN = '40m';
@@ -18,7 +20,7 @@ export class AuthService {
   }
 
   // Register new user
-  async register(phone: string, pin: string, fullName?: string) {
+  async register(phone: string, pin: string, fullName?: string, referralCode?: string) {
     // Normalize phone
     phone = this.normalizePhone(phone);
 
@@ -38,6 +40,17 @@ export class AuthService {
       throw new Error('Phone number already registered');
     }
 
+    // Resolve referral code to marketer
+    let referredByMarketerId: string | undefined;
+    if (referralCode) {
+      const marketerService = new MarketerService();
+      const marketer = await marketerService.findByCode(referralCode);
+      if (!marketer) {
+        throw new Error('Invalid referral code');
+      }
+      referredByMarketerId = marketer.id;
+    }
+
     // Hash PIN
     const pinHash = await bcrypt.hash(pin, 12);
 
@@ -49,6 +62,7 @@ export class AuthService {
         full_name: fullName,
         kyc_status: 'pending',
         is_active: true,
+        referred_by_marketer_id: referredByMarketerId,
       });
 
       await Wallet.query(trx).insert({
@@ -56,6 +70,13 @@ export class AuthService {
         balance: 0,
         currency: 'ZMW',
       });
+
+      // Increment marketer signup count
+      if (referredByMarketerId) {
+        await Marketer.query(trx)
+          .where({ id: referredByMarketerId })
+          .increment('total_signups', 1);
+      }
 
       return newUser;
     });
@@ -68,6 +89,7 @@ export class AuthService {
         phone: user.phone,
         full_name: user.full_name,
         kyc_status: user.kyc_status,
+        referred_by_marketer_id: user.referred_by_marketer_id,
       },
       token,
     };
@@ -107,6 +129,7 @@ export class AuthService {
         full_name: user.full_name,
         kyc_status: user.kyc_status,
         balance: wallet?.balance || 0,
+        referred_by_marketer_id: user.referred_by_marketer_id,
       },
       token,
     };

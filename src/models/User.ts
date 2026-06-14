@@ -16,10 +16,14 @@ export class User extends Model {
   status?: 'active' | 'suspended' | 'banned';
   date_of_birth?: Date;
   is_active!: boolean;
+  referred_by_marketer_id?: string;
+  first_deposit_at?: Date;
+  first_deposit_amount?: number;
   created_at!: Date;
   updated_at!: Date;
 
   wallet?: import('./Wallet').Wallet;
+  marketer?: import('./Marketer').Marketer;
 
   static relationMappings = {
     wallet: {
@@ -29,6 +33,14 @@ export class User extends Model {
       join: {
         from: 'users.id',
         to: 'wallets.user_id',
+      },
+    },
+    marketer: {
+      relation: Model.BelongsToOneRelation,
+      modelClass: () => require('./Marketer').Marketer,
+      join: {
+        from: 'users.referred_by_marketer_id',
+        to: 'marketers.id',
       },
     },
   };

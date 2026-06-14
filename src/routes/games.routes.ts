@@ -10,8 +10,11 @@ import { BlackjackService } from '../services/games/blackjack.service';
 import { HourlyDrawService } from '../services/games/hourly-draw.service';
 import { GamePlay } from '../models/GamePlay';
 import { Transaction } from '../models/Transaction';
+import { GameConfig } from '../models/GameConfig';
+import { GameEconomyService } from '../services/game-economy.service';
 
 const router = Router();
+const gameEconomyService = new GameEconomyService();
 
 // Initialize services before auth so public routes can use them
 const spinWheelService = new SpinWheelService();
@@ -42,6 +45,23 @@ router.get('/draw/upcoming', async (_req, res) => {
             admin_prize_pool: draw.admin_prize_pool == null ? undefined : Number(draw.admin_prize_pool),
           }
         : null,
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// PUBLIC — game configs for fair-play disclosure
+// ============================================
+router.get('/configs', async (_req, res) => {
+  try {
+    const configs = await GameConfig.query().orderBy('sort_order', 'asc');
+    const enriched = await Promise.all(
+      configs.map(async (c) => gameEconomyService.getDisplayInfo(c.game_type).catch(() => null))
+    );
+    res.json({
+      configs: enriched.filter(Boolean),
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message });

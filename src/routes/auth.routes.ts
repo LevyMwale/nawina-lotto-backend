@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { AuthService } from '../services/auth.service';
+import { MarketerService } from '../services/marketer.service';
 import { OtpService } from '../services/otp.service';
 import { User } from '../models/User';
 import { AppError } from '../utils/errors';
 
 const router = Router();
 const authService = new AuthService();
+const marketerService = new MarketerService();
 const otpService = new OtpService();
 
 // ---------------------------------------------------------------------------
@@ -38,15 +40,34 @@ function sendError(res: any, err: unknown): void {
   });
 }
 
+router.get('/referral/:code', async (req, res) => {
+  try {
+    const code = req.params.code;
+    const marketer = await marketerService.findByCode(code);
+    if (!marketer) {
+      return res.status(404).json({ error: 'Invalid referral code' });
+    }
+    res.json({
+      code: marketer.code,
+      marketer_name: marketer.full_name,
+      bonus_percent: 30,
+      bonus_cap: 100,
+      message: `Sign up with marketer ${marketer.full_name || marketer.code} and get 30% extra on your first deposit (up to K100).`,
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 router.post('/register', async (req, res) => {
   try {
-    const { phone, pin, fullName } = req.body;
+    const { phone, pin, fullName, referralCode } = req.body;
 
     if (!phone || !pin) {
       return res.status(400).json({ error: 'Phone and PIN are required' });
     }
 
-    const result = await authService.register(phone, pin, fullName);
+    const result = await authService.register(phone, pin, fullName, referralCode);
     res.status(201).json(result);
   } catch (error: any) {
     // Temporary diagnostic — log the full error to the Render log so we

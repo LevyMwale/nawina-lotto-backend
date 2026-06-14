@@ -14,7 +14,7 @@ import { HousePoolService } from './house-pool.service';
 //      server-side.
 //   2. Generate + settle "soccer quiz" rounds: a single multiple-choice
 //      question derived from the current league standings of the two teams
-//      in a chosen fixture. Stake → answer → 2× payout on correct.
+//      in a chosen fixture. Stake → answer → configured payout on correct.
 //
 // League coverage: top 5 European + Champions League + AFCON + CAF Champions
 // League. (Zambian Super League is not available on the football-data.org
@@ -317,10 +317,12 @@ async function getQuizConfig(): Promise<SoccerQuizConfig> {
   const dbConfig = await GameConfig.query()
     .findOne({ game_type: 'soccer_quiz', is_active: true });
   if (dbConfig) {
+    const odds = dbConfig.odds_config || {};
+    const correctOutcome = odds.correct || {};
     return {
       minStake: Number(dbConfig.min_stake) || DEFAULT_CONFIG.minStake,
       maxStake: Number(dbConfig.max_stake) || DEFAULT_CONFIG.maxStake,
-      correctMultiplier: DEFAULT_CONFIG.correctMultiplier,
+      correctMultiplier: Number(correctOutcome.multiplier) || DEFAULT_CONFIG.correctMultiplier,
     };
   }
   return DEFAULT_CONFIG;

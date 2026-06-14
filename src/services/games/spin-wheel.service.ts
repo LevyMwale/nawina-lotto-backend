@@ -2,42 +2,20 @@ import { transaction } from 'objection';
 import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
-import { GameConfig } from '../../models/GameConfig';
+import { GameEconomyService } from '../game-economy.service';
 import { HousePoolService } from './house-pool.service';
-
-interface SpinWheelConfig {
-  outcomes: {
-    [key: string]: {
-      probability: number;
-      multiplier: number;
-      label: string;
-    };
-  };
-  minStake: number;
-  maxStake: number;
-}
-
-const DEFAULT_SPIN_CONFIG: SpinWheelConfig = {
-  outcomes: {
-    lose: { probability: 0.50, multiplier: 0, label: 'Try Again' },
-    small: { probability: 0.25, multiplier: 1, label: '1x Win' },
-    medium: { probability: 0.15, multiplier: 2, label: '2x Win' },
-    big: { probability: 0.08, multiplier: 5, label: '5x Win' },
-    jackpot: { probability: 0.02, multiplier: 50, label: 'JACKPOT!' },
-  },
-  minStake: 2,
-  maxStake: 100,
-};
 
 export class SpinWheelService {
   private walletService: WalletService;
   private rngService: RNGService;
   private housePoolService: HousePoolService;
+  private gameEconomyService: GameEconomyService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
     this.housePoolService = new HousePoolService();
+    this.gameEconomyService = new GameEconomyService();
   }
 
   /**
@@ -45,11 +23,11 @@ export class SpinWheelService {
    */
   async play(userId: string, stake: number) {
     // Get game configuration
-    const config = await this.getConfig();
+    const config = await this.gameEconomyService.getConfig('spin_wheel');
 
     // Validate stake
-    if (stake < config.minStake || stake > config.maxStake) {
-      throw new Error(`Stake must be between K${config.minStake} and K${config.maxStake}`);
+    if (stake < config.min_stake || stake > config.max_stake) {
+      throw new Error(`Stake must be between K${config.min_stake} and K${config.max_stake}`);
     }
 
     // Execute game in transaction
@@ -61,8 +39,9 @@ export class SpinWheelService {
 
       // 2. Generate outcome
       const { seed, random } = this.rngService.generateRandom();
-      let outcome = this.determineOutcome(random, config.outcomes);
-      let multiplier = config.outcomes[outcome].multiplier;
+      const outcomeObj = this.gameEconomyService.determineOutcome(random, config.outcomes);
+      let outcome = outcomeObj.key;
+      let multiplier = outcomeObj.multiplier;
       let payout = stake * multiplier;
 
       // 3. Global house pool enforcement — cap to budget, never force to zero
@@ -88,7 +67,7 @@ export class SpinWheelService {
         bet_data: null,
         result: {
           outcome,
-          label: config.outcomes[outcome].label,
+          label: outcomeObj.label,
           multiplier,
         },
         payout,
@@ -102,7 +81,7 @@ export class SpinWheelService {
         success: true,
         game_id: gamePlay.id,
         outcome,
-        label: config.outcomes[outcome].label,
+        label: outcomeObj.label,
         multiplier,
         stake,
         payout,
@@ -110,40 +89,6 @@ export class SpinWheelService {
         seed, // For provably fair verification
       };
     });
-  }
-
-  /**
-   * Determine outcome based on probability distribution
-   */
-  private determineOutcome(random: number, outcomes: SpinWheelConfig['outcomes']): string {
-    let cumulative = 0;
-
-    for (const [key, config] of Object.entries(outcomes)) {
-      cumulative += config.probability;
-      if (random < cumulative) {
-        return key;
-      }
-    }
-
-    return 'lose'; // Fallback
-  }
-
-  /**
-   * Get game configuration (with caching)
-   */
-  private async getConfig(): Promise<SpinWheelConfig> {
-    const dbConfig = await GameConfig.query()
-      .findOne({ game_type: 'spin_wheel', is_active: true });
-
-    if (dbConfig) {
-      return {
-        outcomes: dbConfig.odds_config,
-        minStake: Number(dbConfig.min_stake),
-        maxStake: Number(dbConfig.max_stake),
-      };
-    }
-
-    return DEFAULT_SPIN_CONFIG;
   }
 
   /**

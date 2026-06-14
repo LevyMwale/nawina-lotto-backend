@@ -4,6 +4,7 @@ import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
 import { User } from '../../models/User';
 import { fetchQuestions as fetchOpenTdbQuestions } from './opentdb.client';
+import { GameEconomyService } from '../game-economy.service';
 import { HousePoolService } from './house-pool.service';
 
 interface QuizQuestion {
@@ -95,11 +96,13 @@ export class QuizService {
   private walletService: WalletService;
   private rngService: RNGService;
   private housePoolService: HousePoolService;
+  private gameEconomyService: GameEconomyService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
     this.housePoolService = new HousePoolService();
+    this.gameEconomyService = new GameEconomyService();
   }
 
   /**
@@ -139,8 +142,15 @@ export class QuizService {
    * frontend `QuizGame` component consumes the response.
    */
   async play(userId: string, stake: number) {
-    if (stake < DEFAULT_QUIZ_CONFIG.minStake || stake > DEFAULT_QUIZ_CONFIG.maxStake) {
-      throw new Error(`Stake must be between K${DEFAULT_QUIZ_CONFIG.minStake} and K${DEFAULT_QUIZ_CONFIG.maxStake}`);
+    const config = await this.gameEconomyService.getConfig('quiz');
+    const scoresOutcome = config.outcomes.find((o) => o.key === 'scores');
+    const payoutByCorrect: number[] = scoresOutcome && Array.isArray(scoresOutcome.multiplier)
+      ? (scoresOutcome.multiplier as unknown as number[])
+      : DEFAULT_QUIZ_CONFIG.payoutByCorrect;
+    const questionsPerRound = DEFAULT_QUIZ_CONFIG.questionsPerRound;
+
+    if (stake < config.min_stake || stake > config.max_stake) {
+      throw new Error(`Stake must be between K${config.min_stake} and K${config.max_stake}`);
     }
 
     return await transaction(GamePlay.knex(), async (trx) => {
@@ -175,7 +185,7 @@ export class QuizService {
       const correctCount = perQuestion.filter(Boolean).length;
 
       // 5. Compute payout
-      let multiplier = DEFAULT_QUIZ_CONFIG.payoutByCorrect[correctCount] ?? 0;
+      let multiplier = payoutByCorrect[correctCount] ?? 0;
       let payout = Math.floor(stake * multiplier);
 
       // 5b. Global house pool enforcement — cap to budget, never force to zero

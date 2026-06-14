@@ -4,10 +4,15 @@ import { TaxService } from '../services/tax.service';
 import { PdfService } from '../services/pdf.service';
 import { WalletService } from '../services/wallet.service';
 import { HourlyDrawService } from '../services/games/hourly-draw.service';
+import { MarketerService } from '../services/marketer.service';
+import { GameEconomyService } from '../services/game-economy.service';
+import { BonusService } from '../services/bonus.service';
+import { PromotionSetting } from '../models/PromotionSetting';
 import { User } from '../models/User';
 import { Wallet } from '../models/Wallet';
 import { Transaction } from '../models/Transaction';
 import { GamePlay } from '../models/GamePlay';
+import { GameConfig } from '../models/GameConfig';
 import { authenticateAdmin, AdminAuthRequest, requireRole } from '../middleware/admin.middleware';
 
 const router = Router();
@@ -16,6 +21,9 @@ const taxService = new TaxService();
 const pdfService = new PdfService();
 const walletService = new WalletService();
 const hourlyDrawService = new HourlyDrawService();
+const marketerService = new MarketerService();
+const gameEconomyService = new GameEconomyService();
+const bonusService = new BonusService();
 
 console.log('📦 Admin routes file loaded');
 
@@ -645,6 +653,248 @@ router.patch('/tax/operator-profile', requireRole('super_admin'), async (req, re
   }
 });
 
+// ============================================
+// MARKETER MANAGEMENT
+// ============================================
+router.get('/marketers', requireRole('super_admin', 'admin'), async (req, res) => {
+  try {
+    const limit = parseInt(str(req.query.limit)) || 50;
+    const offset = parseInt(str(req.query.offset)) || 0;
+    const status = req.query.status ? str(req.query.status) : undefined;
+    const search = req.query.search ? str(req.query.search) : undefined;
+    const result = await marketerService.listMarketers({ status, search, limit, offset });
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.post('/marketers', requireRole('super_admin', 'admin'), async (req: AdminAuthRequest, res) => {
+  try {
+    const { phone, pin, full_name, commission_rate } = req.body || {};
+    if (!phone || !pin || !full_name) {
+      return res.status(400).json({ error: 'phone, pin and full_name are required' });
+    }
+    const marketer = await marketerService.createMarketer(
+      phone,
+      pin,
+      full_name,
+      req.adminId!,
+      Number(commission_rate || 0)
+    );
+    res.status(201).json({ marketer });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/marketers/:id', requireRole('super_admin', 'admin'), async (req, res) => {
+  try {
+    const marketer = await marketerService.getMarketer(str(req.params.id));
+    res.json({ marketer });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.patch('/marketers/:id/status', requireRole('super_admin', 'admin'), async (req, res) => {
+  try {
+    const { status } = req.body || {};
+    if (!status || !['active', 'suspended'].includes(status)) {
+      return res.status(400).json({ error: 'status must be active or suspended' });
+    }
+    const result = await marketerService.updateStatus(str(req.params.id), status as any);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/marketers/:id/referrals', requireRole('super_admin', 'admin'), async (req, res) => {
+  try {
+    const limit = parseInt(str(req.query.limit)) || 100;
+    const offset = parseInt(str(req.query.offset)) || 0;
+    const result = await marketerService.getReferrals(str(req.params.id), limit, offset);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// PROMOTION SETTINGS
+// ============================================
+router.get('/promotions', requireRole('super_admin', 'admin'), async (_req, res) => {
+  try {
+    const settings = await bonusService.getSettings();
+    res.json({ onboarding_bonus: settings });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.patch('/promotions', requireRole('super_admin'), async (req, res) => {
+  try {
+    const { percent, cap, wagering_multiplier, expiry_days, enabled } = req.body || {};
+    const value: any = {};
+    if (percent !== undefined) value.percent = Number(percent);
+    if (cap !== undefined) value.cap = Number(cap);
+    if (wagering_multiplier !== undefined) value.wagering_multiplier = Number(wagering_multiplier);
+    if (expiry_days !== undefined) value.expiry_days = Number(expiry_days);
+    if (enabled !== undefined) value.enabled = Boolean(enabled);
+
+    await PromotionSetting.query()
+      .insert({ key: 'onboarding_bonus', value: JSON.stringify(value) })
+      .onConflict('key')
+      .merge(['value', 'updated_at']);
+
+    const updated = await bonusService.getSettings();
+    res.json({ onboarding_bonus: updated });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// GAME CONFIGURATION + PROFIT DASHBOARD
+// ============================================
+router.get('/game-configs', requireRole('super_admin', 'admin'), async (_req, res) => {
+  try {
+    const configs = await GameConfig.query().orderBy('sort_order', 'asc');
+    res.json({
+      configs: configs.map((c) => ({
+        id: c.id,
+        game_type: c.game_type,
+        min_stake: Number(c.min_stake),
+        max_stake: Number(c.max_stake),
+        is_active: c.is_active,
+        economy_config: c.economy_config,
+        display_config: c.display_config,
+        odds_config: c.odds_config,
+        payout_config: c.payout_config,
+        description: c.description,
+        rules_text: c.rules_text,
+        sort_order: Number(c.sort_order ?? 0),
+      })),
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.patch('/game-configs/:id', requireRole('super_admin'), async (req, res) => {
+  try {
+    const id = str(req.params.id);
+    const allowed = [
+      'odds_config',
+      'payout_config',
+      'economy_config',
+      'display_config',
+      'description',
+      'rules_text',
+      'min_stake',
+      'max_stake',
+      'is_active',
+      'sort_order',
+    ];
+    const patch: any = {};
+    for (const k of allowed) {
+      if (k in (req.body || {})) patch[k] = req.body[k];
+    }
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'No recognised fields in body' });
+    }
+
+    const updated = await GameConfig.query().patchAndFetchById(id, patch);
+    if (!updated) {
+      return res.status(404).json({ error: 'Game config not found' });
+    }
+
+    const rtp = gameEconomyService.calculateRTP(
+      Array.isArray(updated.odds_config)
+        ? updated.odds_config
+        : Object.entries(updated.odds_config || {}).map(([key, value]: [string, any]) => ({
+            key,
+            multiplier: Number(value.multiplier ?? 0),
+            probability: value.probability != null ? Number(value.probability) : undefined,
+            label: value.label || key,
+          }))
+    );
+
+    res.json({
+      config: {
+        id: updated.id,
+        game_type: updated.game_type,
+        min_stake: Number(updated.min_stake),
+        max_stake: Number(updated.max_stake),
+        is_active: updated.is_active,
+        economy_config: updated.economy_config,
+        display_config: updated.display_config,
+        odds_config: updated.odds_config,
+        payout_config: updated.payout_config,
+        description: updated.description,
+        rules_text: updated.rules_text,
+        sort_order: Number(updated.sort_order ?? 0),
+        computed_rtp: `${(rtp * 100).toFixed(1)}%`,
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/profit', requireRole('super_admin', 'admin'), async (req, res) => {
+  try {
+    const days = parseInt(str(req.query.days)) || 30;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    const knex = GamePlay.knex();
+    const stakeRes = await knex.raw(
+      `SELECT COALESCE(SUM(stake), 0) AS total FROM game_plays WHERE created_at >= ?`,
+      [since]
+    );
+    const winRes = await knex.raw(
+      `SELECT COALESCE(SUM(payout), 0) AS total FROM game_plays WHERE created_at >= ?`,
+      [since]
+    );
+    const bonusRes = await knex.raw(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE type = 'bonus' AND status = 'completed' AND created_at >= ?`,
+      [since]
+    );
+    const depositRes = await knex.raw(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE type = 'deposit' AND status = 'completed' AND created_at >= ?`,
+      [since]
+    );
+
+    const totalStakes = Number(stakeRes.rows[0].total);
+    const totalPayouts = Number(winRes.rows[0].total);
+    const totalBonuses = Number(bonusRes.rows[0].total);
+    const totalDeposits = Number(depositRes.rows[0].total);
+
+    const ggr = totalStakes - totalPayouts;
+    const netRevenue = ggr - totalBonuses;
+    const actualRtp = totalStakes > 0 ? totalPayouts / totalStakes : 0;
+
+    res.json({
+      period_days: days,
+      total_stakes: totalStakes,
+      total_payouts: totalPayouts,
+      total_bonuses: totalBonuses,
+      total_deposits: totalDeposits,
+      gross_gaming_revenue: ggr,
+      net_revenue: netRevenue,
+      house_margin: totalStakes > 0 ? ((ggr / totalStakes) * 100).toFixed(1) + '%' : '0%',
+      actual_rtp: (actualRtp * 100).toFixed(1) + '%',
+      target_rtp: '35.0%',
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// SERIALIZERS
+// ============================================
 function serializeReturn(r: any) {
   return {
     id: r.id,

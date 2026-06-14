@@ -2,6 +2,7 @@ import { transaction } from 'objection';
 import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
+import { GameEconomyService } from '../game-economy.service';
 import { HousePoolService } from './house-pool.service';
 
 type BetType = 'exact' | 'even_odd' | 'high_low';
@@ -11,34 +12,38 @@ interface DiceBet {
   prediction: number | string; // number for 'exact', 'even'/'odd' for even_odd, 'high'/'low' for high_low
 }
 
-const PAYOUT_MULTIPLIERS = {
-  exact: 6,
-  even_odd: 2,
-  high_low: 2,
-};
-
 export class DiceRollService {
   private walletService: WalletService;
   private rngService: RNGService;
   private housePoolService: HousePoolService;
+  private gameEconomyService: GameEconomyService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
     this.housePoolService = new HousePoolService();
+    this.gameEconomyService = new GameEconomyService();
   }
 
   /**
    * Play Dice Roll game
    */
   async play(userId: string, stake: number, bet: DiceBet) {
+    // Load game configuration
+    const config = await this.gameEconomyService.getConfig('dice_roll');
+
     // Validate stake
-    if (stake < 2 || stake > 100) {
-      throw new Error('Stake must be between K2 and K100');
+    if (stake < config.min_stake || stake > config.max_stake) {
+      throw new Error(`Stake must be between K${config.min_stake} and K${config.max_stake}`);
     }
 
     // Validate bet
     this.validateBet(bet);
+
+    const odds = config.outcomes.reduce((acc, o) => {
+      acc[o.key as BetType] = o.multiplier;
+      return acc;
+    }, {} as Record<BetType, number>);
 
     return await transaction(GamePlay.knex(), async (trx) => {
       // 1. Deduct stake
@@ -52,7 +57,7 @@ export class DiceRollService {
 
       // 3. Check if won
       let won = this.checkWin(roll, bet);
-      let multiplier = won ? PAYOUT_MULTIPLIERS[bet.type] : 0;
+      let multiplier = won ? (odds[bet.type] ?? 0) : 0;
       let payout = stake * multiplier;
 
       // 3b. Global house pool enforcement — cap to budget, never force to zero

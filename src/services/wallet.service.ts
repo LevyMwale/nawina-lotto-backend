@@ -4,11 +4,13 @@ import { transaction } from 'objection';
 import { v4 as uuidv4 } from 'uuid';
 import { InvoiceService } from './invoice.service';
 import { LipilaService } from './lipila.service';
+import { BonusService } from './bonus.service';
 
 // Single shared instance — InvoiceService is stateless and we want
 // the same in-flight request to use one allocation path.
 const invoiceService = new InvoiceService();
 const lipilaService = new LipilaService();
+const bonusService = new BonusService();
 
 export class WalletService {
   async getBalance(userId: string) {
@@ -67,6 +69,9 @@ export class WalletService {
         reference: `${type.toUpperCase()}-${uuidv4()}`,
         metadata,
       });
+
+      // Track wager against any active locked onboarding bonuses.
+      await bonusService.trackWager(userId, amount, trx);
 
       return {
         transaction_id: txn.id,
@@ -233,11 +238,24 @@ export class WalletService {
       // payment_reference: paymentResult.transactionRef, // Uncomment when using real gateway
     });
 
+    // Award onboarding bonus if this is the user's first real deposit and
+    // they registered via a marketer code.
+    const bonusResult = await bonusService.processFirstDepositBonus(
+      userId,
+      depositAmount
+    );
+
     return {
       success: true,
       balance: result.new_balance,
       transactionId: result.transaction_id,
       invoice: result.invoice,
+      bonus: bonusResult.bonus_credited
+        ? {
+            bonus_amount: bonusResult.bonus_amount,
+            wagering_required: bonusResult.wagering_required,
+          }
+        : null,
     };
   }
 
@@ -493,6 +511,10 @@ export class WalletService {
       excise_duty: number;
       net_amount: number;
     } | null;
+    bonus: {
+      bonus_amount: number;
+      wagering_required: number;
+    } | null;
   }> {
     return await transaction(Transaction.knex(), async (trx) => {
       // Re-read the transaction row inside the transaction so we see the
@@ -531,6 +553,7 @@ export class WalletService {
                 net_amount: Number(existingInvoice.net_amount),
               }
             : null,
+          bonus: null,
         };
       }
 
@@ -560,8 +583,22 @@ export class WalletService {
         amount: depositAmount,
       });
 
+      // Award onboarding bonus if this is the user's first real deposit and
+      // they registered via a marketer code.
+      const bonusResult = await bonusService.processFirstDepositBonus(
+        wallet.user_id,
+        depositAmount,
+        trx
+      );
+
       return {
         newBalance,
+        bonus: bonusResult.bonus_credited
+          ? {
+              bonus_amount: bonusResult.bonus_amount!,
+              wagering_required: bonusResult.wagering_required!,
+            }
+          : null,
         invoice: invoice
           ? {
               id: invoice.id,
@@ -680,6 +717,7 @@ export class WalletService {
         status: 'completed' as const,
         balance: result.newBalance,
         invoice: result.invoice,
+        bonus: result.bonus,
       };
     }
 
@@ -742,6 +780,7 @@ export class WalletService {
       status: 'completed' as const,
       balance: result.newBalance,
       invoice: result.invoice,
+      bonus: result.bonus,
       message: 'Deposit completed manually',
     };
   }

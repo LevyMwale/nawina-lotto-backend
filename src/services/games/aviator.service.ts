@@ -4,6 +4,7 @@ import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
 import { GameConfig } from '../../models/GameConfig';
 import { User } from '../../models/User';
+import { GameEconomyService } from '../game-economy.service';
 import { HousePoolService } from './house-pool.service';
 
 interface AviatorConfig {
@@ -41,11 +42,13 @@ export class AviatorService {
   private walletService: WalletService;
   private rngService: RNGService;
   private housePoolService: HousePoolService;
+  private gameEconomyService: GameEconomyService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
     this.housePoolService = new HousePoolService();
+    this.gameEconomyService = new GameEconomyService();
   }
 
   /**
@@ -261,16 +264,19 @@ export class AviatorService {
   }
 
   private async getConfig(): Promise<AviatorConfig> {
-    const dbConfig = await GameConfig.query()
-      .findOne({ game_type: 'aviator', is_active: true });
-
-    if (dbConfig) {
-      const minStake = Number(dbConfig.min_stake) || DEFAULT_AVIATOR_CONFIG.minStake;
-      const maxStake = Number(dbConfig.max_stake) || DEFAULT_AVIATOR_CONFIG.maxStake;
-      return { minStake, maxStake, crashCurve: DEFAULT_AVIATOR_CONFIG.crashCurve };
+    try {
+      const config = await this.gameEconomyService.getConfig('aviator');
+      const ranges = config.outcomes?.[0]?.multiplier ??
+        (config.outcomes.find((o) => o.key === 'ranges')?.multiplier as any) ??
+        DEFAULT_AVIATOR_CONFIG.crashCurve.ranges;
+      return {
+        minStake: config.min_stake,
+        maxStake: config.max_stake,
+        crashCurve: { ranges: Array.isArray(ranges) ? ranges : DEFAULT_AVIATOR_CONFIG.crashCurve.ranges },
+      };
+    } catch {
+      return DEFAULT_AVIATOR_CONFIG;
     }
-
-    return DEFAULT_AVIATOR_CONFIG;
   }
 
   async getStats(limit = 100) {

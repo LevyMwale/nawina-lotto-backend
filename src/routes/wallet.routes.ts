@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { WalletService } from '../services/wallet.service';
+import { BonusService } from '../services/bonus.service';
 import { Transaction } from '../models/Transaction';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 const walletService = new WalletService();
+const bonusService = new BonusService();
 
 console.log('📦 Wallet routes file loaded');
 
@@ -155,6 +157,16 @@ router.get('/balance/:userId', async (req: AuthRequest, res) => {
     res.json(balance);
   } catch (error: any) {
     console.error('❌ Balance error:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// GET /api/wallet/bonus
+router.get('/bonus', async (req: AuthRequest, res) => {
+  try {
+    const summary = await bonusService.getUserBonusSummary(req.userId!);
+    res.json(summary);
+  } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 });

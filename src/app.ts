@@ -10,6 +10,7 @@ import invoiceRoutes from './routes/invoice.routes';
 import gamesRoutes from './routes/games.routes';
 import adminRoutes from './routes/admin.routes';
 import soccerRoutes from './routes/soccer.routes';
+import marketerRoutes from './routes/marketer.routes';
 
 dotenv.config();
 
@@ -179,6 +180,9 @@ console.log('✅ Admin routes registered at /api/admin');
 
 app.use('/api/soccer', soccerRoutes);
 console.log('✅ Soccer routes registered at /api/soccer');
+
+app.use('/api/marketer', marketerRoutes);
+console.log('✅ Marketer routes registered at /api/marketer');
 
 app.use('/api/invoices', invoiceRoutes);
 console.log('✅ Invoice routes registered at /api/invoices');

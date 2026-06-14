@@ -24,6 +24,7 @@ import { transaction } from 'objection';
 import { WalletService } from '../wallet.service';
 import { RNGService } from '../rng.service';
 import { GamePlay } from '../../models/GamePlay';
+import { GameEconomyService } from '../game-economy.service';
 import { HousePoolService } from './house-pool.service';
 
 const DECK_BASE = 'https://deckofcardsapi.com/api/deck';
@@ -145,30 +146,48 @@ export class BlackjackService {
   private walletService: WalletService;
   private rngService: RNGService;
   private housePoolService: HousePoolService;
+  private gameEconomyService: GameEconomyService;
 
   constructor() {
     this.walletService = new WalletService();
     this.rngService = new RNGService();
     this.housePoolService = new HousePoolService();
+    this.gameEconomyService = new GameEconomyService();
   }
 
   async play(userId: string, stake: number, action: Action, gameId?: string): Promise<BlackjackResult> {
-    if (stake < MIN_STAKE || stake > MAX_STAKE) {
-      throw new Error(`Stake must be between K${MIN_STAKE} and K${MAX_STAKE}`);
+    const config = await this.gameEconomyService.getConfig('blackjack');
+    const multipliers = config.outcomes.reduce((acc, o) => {
+      acc[o.key] = o.multiplier;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const blackjackMultiplier = multipliers['natural'] ?? BLACKJACK_MULTIPLIER;
+    const regularWinMultiplier = multipliers['regular_win'] ?? REGULAR_WIN_MULTIPLIER;
+    const pushMultiplier = multipliers['push'] ?? PUSH_MULTIPLIER;
+
+    if (stake < config.min_stake || stake > config.max_stake) {
+      throw new Error(`Stake must be between K${config.min_stake} and K${config.max_stake}`);
     }
     if (!['deal', 'hit', 'stand', 'double'].includes(action)) {
       throw new Error('Valid action is required');
     }
 
-    if (action === 'deal') return await this.deal(userId, stake);
+    if (action === 'deal') return await this.deal(userId, stake, blackjackMultiplier, regularWinMultiplier, pushMultiplier);
     if (!gameId) throw new Error('gameId is required for hit/stand/double');
-    return await this.resume(userId, stake, action, gameId);
+    return await this.resume(userId, stake, action, gameId, blackjackMultiplier, regularWinMultiplier, pushMultiplier);
   }
 
   // -------------------------------------------------------------------------
   // Deal — first action, creates a new GamePlay row.
   // -------------------------------------------------------------------------
-  private async deal(userId: string, stake: number): Promise<BlackjackResult> {
+  private async deal(
+    userId: string,
+    stake: number,
+    blackjackMultiplier: number,
+    regularWinMultiplier: number,
+    pushMultiplier: number,
+  ): Promise<BlackjackResult> {
     return await transaction(GamePlay.knex(), async (trx) => {
       // 1. Deduct the stake
       await this.walletService.deduct(userId, stake, 'bet', { game_type: 'blackjack' });
@@ -206,7 +225,7 @@ export class BlackjackService {
 
       // 4. Natural 21 → settle immediately. Otherwise hand back to the player.
       if (wasNatural) {
-        return await this.settleHand(trx, userId, stake, inserted.id);
+        return await this.settleHand(trx, userId, stake, inserted.id, false, blackjackMultiplier, regularWinMultiplier, pushMultiplier);
       }
       // Build the snapshot from the in-memory `inserted` row + a fresh
       // wallet balance read. We deliberately do NOT re-read via
@@ -221,7 +240,15 @@ export class BlackjackService {
   // -------------------------------------------------------------------------
   // Resume — hit/stand/double on an existing hand.
   // -------------------------------------------------------------------------
-  private async resume(userId: string, stake: number, action: Action, gameId: string): Promise<BlackjackResult> {
+  private async resume(
+    userId: string,
+    stake: number,
+    action: Action,
+    gameId: string,
+    blackjackMultiplier: number,
+    regularWinMultiplier: number,
+    pushMultiplier: number,
+  ): Promise<BlackjackResult> {
     return await transaction(GamePlay.knex(), async (trx) => {
       const play = await GamePlay.query(trx).findById(gameId);
       if (!play || play.user_id !== userId) throw new Error('Game not found');
@@ -258,7 +285,7 @@ export class BlackjackService {
             doubled,
           } as BlackjackState,
         });
-        return await this.settleHand(trx, userId, effectiveStake, gameId, doubled);
+        return await this.settleHand(trx, userId, effectiveStake, gameId, doubled, blackjackMultiplier, regularWinMultiplier, pushMultiplier);
       }
 
       // Hit and not bust: save state, hand back to player
@@ -284,6 +311,9 @@ export class BlackjackService {
     stake: number,
     gameId: string,
     doubled: boolean = false,
+    blackjackMultiplier: number = BLACKJACK_MULTIPLIER,
+    regularWinMultiplier: number = REGULAR_WIN_MULTIPLIER,
+    pushMultiplier: number = PUSH_MULTIPLIER,
   ): Promise<BlackjackResult> {
     const play = await GamePlay.query(trx).findById(gameId);
     if (!play) throw new Error('Game not found');
@@ -301,7 +331,7 @@ export class BlackjackService {
 
     const playerTotal = computeTotal(state.player);
     const dealerTotal = computeTotal(dealer);
-    let { status, multiplier } = judgeHand(state, playerTotal, dealerTotal, doubled);
+    let { status, multiplier } = judgeHand(state, playerTotal, dealerTotal, doubled, blackjackMultiplier, regularWinMultiplier, pushMultiplier);
     let payout = status === 'in_progress' ? 0 : Math.floor(stake * multiplier);
 
     // Global house pool enforcement — cap to budget, never force to zero
@@ -394,11 +424,14 @@ function judgeHand(
   playerTotal: number,
   dealerTotal: number,
   doubled: boolean,
+  blackjackMultiplier: number = BLACKJACK_MULTIPLIER,
+  regularWinMultiplier: number = REGULAR_WIN_MULTIPLIER,
+  pushMultiplier: number = PUSH_MULTIPLIER,
 ): { status: Status; multiplier: number } {
   if (playerTotal > 21) return { status: 'bust', multiplier: 0 };
-  if (dealerTotal > 21) return { status: 'dealer_bust', multiplier: REGULAR_WIN_MULTIPLIER };
-  if (state.wasNatural && !doubled) return { status: 'blackjack', multiplier: BLACKJACK_MULTIPLIER };
-  if (playerTotal > dealerTotal) return { status: 'win', multiplier: REGULAR_WIN_MULTIPLIER };
+  if (dealerTotal > 21) return { status: 'dealer_bust', multiplier: regularWinMultiplier };
+  if (state.wasNatural && !doubled) return { status: 'blackjack', multiplier: blackjackMultiplier };
+  if (playerTotal > dealerTotal) return { status: 'win', multiplier: regularWinMultiplier };
   if (playerTotal < dealerTotal) return { status: 'lose', multiplier: 0 };
-  return { status: 'push', multiplier: PUSH_MULTIPLIER };
+  return { status: 'push', multiplier: pushMultiplier };
 }

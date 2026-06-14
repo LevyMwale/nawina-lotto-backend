@@ -18,13 +18,13 @@ const rngService = new RNGService();
  *
  * The admin can set a fixed prize amount (`admin_prize_pool`) on any open
  * draw. When the draw executes, the winner receives that amount. If no admin
- * prize is set, the draw falls back to the pooled ticket-sales model (80% of
- * total pool goes to the winner).
+ * prize is set, the draw falls back to the pooled ticket-sales model (35% of
+ * total pool goes to the winner, matching the platform RTP target).
  */
 
 const DRAW_TIMES = [8, 18]; // hours of the day (08:00 and 18:00)
 const DEFAULT_TICKET_PRICE = 2;
-const POOL_PERCENTAGE = 0.80;
+const POOL_PERCENTAGE = 0.35;
 
 /** All draw-time helpers use UTC so behaviour is identical on Render (UTC),
  *  local dev (CAT), and any other timezone. */
